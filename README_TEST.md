@@ -9,7 +9,8 @@
 | 檔案名稱 | 角色與用途 |
 | :--- | :--- |
 | `sign_client_test.c` | **C 語言測試客戶端**：零第三方函式庫依賴（Windows 使用 Winsock，Linux/macOS 使用 POSIX Socket），負責發送 HTTP GET/POST、解析 JSON 取得 64-byte 簽章、分解 R/S 分量與驗證。 |
-| `mock_signature_server.js` | **本機模擬微服務**：純 Node.js 原生實作（零 npm 依賴），提供 `GET /api/v1/crypto/public-key`、`POST /api/v1/crypto/sign` 與 `POST /api/v1/crypto/verify` 端點。 |
+| `mock_signature_server.js` | **本機模擬微服務**：純 Node.js 原生實作（零 npm 依賴），提供 `GET /api/v1/crypto/public-key`、`POST /api/v1/crypto/sign` 與 `POST /api/v1/crypto/verify` 端點。每次啟動生成拋棄式金鑰。 |
+| `local_signature_bridge.js` | **本機簽章橋接服務**：載入頁面匯出的 PKCS#8 PEM（`ed25519-private.key`）作為私鑰，與瀏覽器頁面共用同一把金鑰（見下方 Bridge 模式）。 |
 | `run_test.ps1` | **PowerShell 一鍵自動化測試腳本**：自動編譯 C 程式、啟動背景伺服器、執行 4 項測試並於結束後自動清理關閉。 |
 | `run_test.bat` | **Windows CMD 一鍵測試批次檔**。 |
 
@@ -65,3 +66,19 @@ run_test.bat
    # 語法: ./sign_client_test [主機IP] [連接埠]
    .\sign_client_test.exe 127.0.0.1 8080
    ```
+
+---
+
+## Bridge 模式：與瀏覽器頁面共用金鑰
+
+`mock_signature_server.js` 每次啟動生成拋棄式金鑰；若要讓 C 測試客戶端與瀏覽器頁面**簽署同一把 Ed25519 金鑰**，改用橋接服務：
+
+1. 在頁面「匯出私鑰 → PKCS#8 PEM」下載 `ed25519-private.key`（頁面輸出的公鑰應與 bridge 啟動時列印的公鑰一致）。
+2. 啟動橋接服務：`node local_signature_bridge.js 8090 ed25519-private.key`
+3. 執行測試客戶端：`.\sign_client_test.exe 127.0.0.1 8090`
+
+或一鍵執行（同時驗證金鑰檔存在性）：
+
+```powershell
+.\run_test.ps1 -BridgeKey ed25519-private.key -Port 8090
+```

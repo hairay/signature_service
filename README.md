@@ -128,6 +128,22 @@ ed25519_cryptographic_signature_service_platform.html
 
 詳細測試說明與手動逐步測試方式請參閱 [README_TEST.md](README_TEST.md)。
 
+#### 進階：與頁面共用同一把金鑰的本機橋接服務 (Bridge)
+
+`sign_client_test.exe` 無法與瀏覽器頁面直接溝通（網頁沙盒無法監聽 TCP 埠）。`local_signature_bridge.js` 補上這一環：它載入**由頁面「匯出私鑰 → PKCS#8 PEM」下載的 `ed25519-private.key`**，並以相同的三端點 API 對外服務，使外部程式簽出的資料與瀏覽器頁面**共用同一把 Ed25519 金鑰**，簽章可互相驗證。
+
+```powershell
+# 1. 在頁面中匯出私鑰 → PKCS#8 PEM → 下載 ed25519-private.key（放於專案目錄）
+# 2. 啟動橋接服務（預設埠 8090）
+node local_signature_bridge.js 8090 ed25519-private.key
+# 3. 外部程式即可呼叫 http://127.0.0.1:8090/api/v1/crypto/*
+#    或用測試腳本驗證整條鏈路（Bridge 模式）：
+.\run_test.ps1 -BridgeKey ed25519-private.key -Port 8090
+```
+
+> [!WARNING]
+> `ed25519-private.key` 為明文私鑰，已列入 `.gitignore`，切勿提交至版本庫或外傳。bridge 與 mock server 同屬本機測試/示範用途（僅綁 127.0.0.1、無鑑權/Nonce/限流）。
+
 ---
 
 ## 📂 專案檔案清單
@@ -136,7 +152,8 @@ ed25519_cryptographic_signature_service_platform.html
 | :--- | :--- |
 | [`ed25519_cryptographic_signature_service_platform.html`](ed25519_cryptographic_signature_service_platform.html) | **前端主應用**：單檔案 Ed25519 互動工作台、驗證工具與微服務架構規範頁面。 |
 | [`sign_client_test.c`](sign_client_test.c) | **C 語言客戶端**：無第三方依賴的 HTTP / Socket 客戶端測試程式。 |
-| [`mock_signature_server.js`](mock_signature_server.js) | **Node.js 模擬微服務**：實作 `/public-key`、`/sign` 與 `/verify` 端點之測試雙標（Test Double）。 |
+| [`mock_signature_server.js`](mock_signature_server.js) | **Node.js 模擬微服務**：實作 `/public-key`、`/sign` 與 `/verify` 端點之測試雙標（Test Double），每次啟動生成拋棄式金鑰。 |
+| [`local_signature_bridge.js`](local_signature_bridge.js) | **本機簽章橋接服務**：載入頁面匯出的 PKCS#8 PEM 私鑰，讓外部程式與瀏覽器頁面共用同一把 Ed25519 金鑰。 |
 | [`run_test.ps1`](run_test.ps1) | **PowerShell 一鍵測試腳本**：包含埠衝突檢測、伺服器啟動與 PID 精確回收。 |
 | [`run_test.bat`](run_test.bat) | **Windows 批次檔**：雙擊即測的批次執行檔。 |
 | [`README_TEST.md`](README_TEST.md) | 端對端測試套件專屬技術說明文件。 |

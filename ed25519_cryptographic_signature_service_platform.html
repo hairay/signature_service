@@ -474,6 +474,43 @@
 </pre>
         </div>
       </div>
+
+      <!-- Local Signature Bridge (方案 A 實作) -->
+      <div class="bg-surface-850 p-6 rounded-2xl border border-surface-800 space-y-4">
+        <h3 class="font-semibold text-white text-base flex items-center gap-2">
+          <i data-lucide="cable" class="w-5 h-5 text-emerald-400"></i> 本機簽章橋接服務 (local_signature_bridge.js)
+        </h3>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          瀏覽器頁面無法監聽 TCP 埠（沙盒限制）。本專案提供一個零依賴的 Node.js 橋接服務，
+          載入「本頁面匯出的 PKCS#8 PEM 私鑰」後，對外部程式（如 <span class="font-mono text-indigo-300">sign_client_test.exe</span>）
+          開放與上圖相同的 <span class="font-mono text-indigo-300">/api/v1/crypto/*</span> 三端點 ——
+          讓外部系統簽出的資料與本頁面共用<strong class="text-slate-300">同一把 Ed25519 金鑰</strong>，簽章可互相驗證。
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-surface-900 p-4 rounded-xl border border-surface-700/80 space-y-2">
+            <p class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="list-ordered" class="w-3.5 h-3.5 text-emerald-400"></i> 整合步驟
+            </p>
+            <ol class="text-xs text-slate-400 space-y-1 list-decimal list-inside">
+              <li>在本頁面「匯出私鑰 → PKCS#8 PEM」下載 <span class="font-mono text-indigo-300">ed25519-private.key</span></li>
+              <li>將金鑰檔放置於專案目錄（已列入 .gitignore，勿提交/外傳）</li>
+              <li>啟動橋接服務：<span class="font-mono text-indigo-300">node local_signature_bridge.js 8090 ed25519-private.key</span></li>
+              <li>外部程式即可呼叫 <span class="font-mono text-indigo-300">http://127.0.0.1:8090/api/v1/crypto/*</span></li>
+            </ol>
+          </div>
+          <div class="bg-surface-900 p-4 rounded-xl border border-surface-700/80 space-y-2">
+            <p class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i> 與 mock 測試伺服器的差異
+            </p>
+            <ul class="text-xs text-slate-400 space-y-1 list-disc list-inside">
+              <li>mock（拋棄式金鑰）：僅供 C 客戶端連通性測試，金鑰每次重啟即失效</li>
+              <li>bridge（頁面匯出金鑰）：與本頁面 OPFS 加密保存的金鑰同源</li>
+              <li>兩者皆僅綁 127.0.0.1、無鑑權/Nonce/限流，屬本機測試與示範用途</li>
+              <li>一鍵測試：<span class="font-mono text-indigo-300">run_test.ps1 -BridgeKey ed25519-private.key</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="tab-api" class="tab-pane hidden space-y-6">

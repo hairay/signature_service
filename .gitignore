@@ -1,2 +1,6 @@
 sign_client_test.exe
 sign_client_test
+# 金鑰素材：頁面匯出的私鑰檔絕不可提交至版本庫
+ed25519-private.key
+ed25519-seed.hex
+signcore-ed25519-backup.json

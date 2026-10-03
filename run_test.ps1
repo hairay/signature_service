@@ -1,9 +1,26 @@
-param([int]$Port = 8080)
+param(
+    [int]$Port = 8080,
+    # Optional: path to the page-exported PKCS#8 PEM (ed25519-private.key).
+    # When set, tests run against local_signature_bridge.js (same key as the
+    # browser page) instead of the throwaway-key mock server.
+    [string]$BridgeKey = ""
+)
 # SignCore 64 - Test Runner (gcc + node in PATH required; exit code reflects test result)
 $ErrorActionPreference = 'Stop'
+$modeLabel = if ($BridgeKey) { "Bridge mode (page key: $BridgeKey)" } else { "Mock mode (throwaway key)" }
 Write-Host "========================================================"
 Write-Host " SignCore 64 - Automated End-to-End Test (port $Port)"
+Write-Host " Mode: $modeLabel"
 Write-Host "========================================================"
+
+if ($BridgeKey -and -not (Test-Path -LiteralPath $BridgeKey)) {
+    Write-Host "Bridge key file not found: $BridgeKey" -ForegroundColor Red
+    exit 1
+}
+# 規範化為絕對路徑：避免相對路徑與含空白路徑在 Start-Process ArgumentList 中被拆詞
+if ($BridgeKey) {
+    $BridgeKey = (Resolve-Path -LiteralPath $BridgeKey).Path
+}
 
 Write-Host "Step 0: Checking port $Port availability..."
 $occupied = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
@@ -20,8 +37,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "Compilation successful: sign_client_test.exe"
 
-Write-Host "Step 2: Starting mock server (node mock_signature_server.js $Port)..."
-$serverProcess = Start-Process node -ArgumentList @("mock_signature_server.js", "$Port") -PassThru -WindowStyle Hidden
+if ($BridgeKey) {
+    Write-Host "Step 2: Starting bridge server (node local_signature_bridge.js $Port $BridgeKey)..."
+    $serverProcess = Start-Process node -ArgumentList @("local_signature_bridge.js", "$Port", "`"$BridgeKey`"") -PassThru -WindowStyle Hidden
+} else {
+    Write-Host "Step 2: Starting mock server (node mock_signature_server.js $Port)..."
+    $serverProcess = Start-Process node -ArgumentList @("mock_signature_server.js", "$Port") -PassThru -WindowStyle Hidden
+}
 
 # Health-check loop: wait up to ~5s instead of a blind 1s sleep
 $ready = $false
@@ -34,11 +56,13 @@ for ($i = 0; $i -lt 20; $i++) {
     }
 }
 if (-not $ready) {
-    Write-Host "Mock server failed to start on port $Port" -ForegroundColor Red
+    $serverName = if ($BridgeKey) { "Bridge server" } else { "Mock server" }
+    Write-Host "$serverName failed to start on port $Port" -ForegroundColor Red
     if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
-Write-Host "Mock server ready at http://127.0.0.1:$Port"
+$readyName = if ($BridgeKey) { "Bridge" } else { "Mock server" }
+Write-Host "$readyName ready at http://127.0.0.1:$Port"
 
 Write-Host "Step 3: Running C test client..."
 $clientExit = 1
@@ -53,7 +77,8 @@ try {
 } finally {
     if ($serverProcess) {
         Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
-        Write-Host "Mock server stopped."
+        $stoppedName = if ($BridgeKey) { "Bridge server" } else { "Mock server" }
+        Write-Host "$stoppedName stopped."
     }
 }
 
