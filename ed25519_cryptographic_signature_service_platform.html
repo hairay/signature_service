@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/></svg>" />
   <title>Ed25519 數位簽章服務系統架構與互動工作台</title>
-  <!-- Tailwind CSS CDN (pinned version + SRI) -->
-  <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.16" integrity="sha384-xfdAGp2liCPeLP6u4jNa4ccgGFMgMrfuLvsbb2pxRzMEA+P5fcxdTVgDRwQJrA8d" crossorigin="anonymous"></script>
+  <!-- Tailwind Play CDN (version-pinned). Do NOT switch this to a jsdelivr/npm URL:
+       npm/tailwindcss serves the CJS build entry (module.exports=require(...)), not a browser
+       runtime. cdn.tailwindcss.com sends no CORS headers, so an SRI integrity attribute here
+       would block the script from loading — pinning the version is the safety mechanism. -->
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   <!-- Lucide Icons (pinned version + SRI) -->
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js" integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM" crossorigin="anonymous"></script>
   <script>

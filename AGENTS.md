@@ -5,7 +5,7 @@ Single-file browser app: `ed25519_cryptographic_signature_service_platform.html`
 ## Running
 
 - Open the HTML file directly in a browser. There is no dev server or install step.
-- Page loads Tailwind and Lucide from CDNs (pinned jsdelivr URLs with SRI) — needs network; offline, styling and icons break.
+- Page loads Tailwind and Lucide from CDNs — needs network; offline, styling and icons break. Tailwind comes from the version-pinned Play CDN (`cdn.tailwindcss.com/3.4.16`, NO `integrity` attribute: that host sends no CORS headers, and jsdelivr/npm `tailwindcss` URLs serve the CJS entry — a browser-hostile `module.exports` stub, NOT the Play CDN runtime). Lucide comes from a pinned jsdelivr UMD URL with SRI (that file is a prebuilt npm artifact, SRI-safe).
 - Browser smoke test: sign a payload in the workbench tab, click「帶入驗證工具檢驗」, confirm「簽章驗證通過」in the verifier tab.
 
 ### Test kit

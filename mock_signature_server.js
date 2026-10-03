@@ -54,12 +54,15 @@ const server = http.createServer((req, res) => {
 
     // 端點 2: POST /api/v1/crypto/sign
     if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/sign') {
-        let body = '';
+        // 以 Buffer 收集、結束時一次解碼：避免多位元組 UTF-8 字元跨 chunk 邊界被截斷
+        const chunks = [];
+        let totalBytes = 0;
         let tooLarge = false;
         req.on('data', chunk => {
             if (tooLarge) return;
-            body += chunk;
-            if (body.length > MAX_BODY_BYTES) {
+            chunks.push(chunk);
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_BODY_BYTES) {
                 tooLarge = true;
                 res.writeHead(413);
                 res.end(JSON.stringify({ code: 413, error: '請求 Payload 超過大小上限 (1MB)' }));
@@ -69,7 +72,7 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             if (tooLarge) return;
             try {
-                const reqJson = JSON.parse(body);
+                const reqJson = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                 const payload = reqJson.payload;
 
                 if (typeof payload !== 'string') {
@@ -116,12 +119,14 @@ const server = http.createServer((req, res) => {
 
     // 端點 3: POST /api/v1/crypto/verify (供測試程式校驗)
     if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/verify') {
-        let body = '';
+        const chunks = [];
+        let totalBytes = 0;
         let tooLarge = false;
         req.on('data', chunk => {
             if (tooLarge) return;
-            body += chunk;
-            if (body.length > MAX_BODY_BYTES) {
+            chunks.push(chunk);
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_BODY_BYTES) {
                 tooLarge = true;
                 res.writeHead(413);
                 res.end(JSON.stringify({ code: 413, error: '請求 Payload 超過大小上限 (1MB)' }));
@@ -131,10 +136,27 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             if (tooLarge) return;
             try {
-                const reqJson = JSON.parse(body);
+                const reqJson = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                 const payload = reqJson.payload;
                 const sigHex = reqJson.signature_hex;
                 const pubHex = reqJson.public_key_hex || PUBLIC_KEY_HEX;
+
+                // 欄位格式前置校驗：與 local_signature_bridge.js 對齊，給呼叫端可讀的 400 訊息
+                if (typeof payload !== 'string') {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ code: 400, error: 'payload 欄位為必填字串', valid: false }));
+                    return;
+                }
+                if (typeof sigHex !== 'string' || sigHex.length !== 128 || /[^0-9a-fA-F]/.test(sigHex)) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ code: 400, error: 'signature_hex 格式不正確 (應為 128 字元 Hex = 64 Bytes)', valid: false }));
+                    return;
+                }
+                if (typeof pubHex !== 'string' || pubHex.length !== 64 || /[^0-9a-fA-F]/.test(pubHex)) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ code: 400, error: 'public_key_hex 格式不正確 (應為 64 字元 Hex = 32 Bytes)', valid: false }));
+                    return;
+                }
 
                 const dataBuffer = Buffer.from(payload, 'utf-8');
                 const sigBuffer = Buffer.from(sigHex, 'hex');
