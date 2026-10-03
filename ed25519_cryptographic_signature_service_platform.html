@@ -149,7 +149,7 @@
             <span class="text-xs font-semibold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
               <i data-lucide="lock" class="w-4 h-4"></i> 伺服器內部固定私鑰 (32-Byte Seed / Ed25519)
             </span>
-            <span class="text-xs font-mono text-slate-400 bg-surface-800 px-2 py-0.5 rounded border border-surface-700">Internal Vault Encrypted</span>
+            <span id="key-source-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">金鑰檔: 初始化中…</span>
           </div>
           <div class="relative">
             <input id="server-private-key-display" type="password" readonly value="載入中..." class="w-full bg-surface-900 font-mono text-xs text-rose-300 p-3 pr-20 rounded-xl border border-surface-700 focus:outline-none select-all" />
@@ -162,8 +162,9 @@
               </button>
             </div>
           </div>
+          <p id="key-file-info" class="text-[11px] font-mono text-slate-500">金鑰檔: 初始化中…</p>
           <p class="text-xs text-slate-500">
-            * 實務架構中，此私鑰永不離開伺服器記憶體或 Cloud KMS / 專用 HSM 硬體。此處僅供模擬與視覺化驗證。
+            * 私鑰持久化於瀏覽器 OPFS 私有檔案 <span class="font-mono">signcore-ed25519-key.json</span>（localStorage 為後備鏡像）：檔案不存在時自動建立，存在時於啟動直接讀取。重設金鑰會覆寫此檔。實務架構中，此私鑰應由 KMS / HSM 生成且不可匯出，永不離開伺服器硬體；此處僅供模擬與視覺化驗證。
           </p>
         </div>
 
@@ -637,6 +638,13 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     let isPrivateKeyVisible = false;
     let lastSignatureHex = null;
 
+    // --- Private key persistence (file-based) ---
+    // Primary store: browser OPFS file "signcore-ed25519-key.json".
+    // Mirror: localStorage (fallback for environments where OPFS is unavailable, e.g. some file:// setups).
+    // Flow on startup: file exists -> load it directly; missing/corrupt -> generate a new key pair and create the file.
+    const KEY_FILE_NAME = 'signcore-ed25519-key.json';
+    const KEY_STORAGE_BACKUP = 'signcore.ed25519.key';
+
     // Utility: Convert ArrayBuffer to Hex string
     function buf2hex(buffer) {
       return [...new Uint8Array(buffer)]
@@ -743,6 +751,115 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       document.body.removeChild(tempInput);
     }
 
+    function updateKeyFileInfo(text, isError = false) {
+      const elem = document.getElementById('key-file-info');
+      if (!elem) return;
+      elem.innerText = text;
+      elem.classList.toggle('text-rose-400', isError);
+      elem.classList.toggle('text-slate-500', !isError);
+    }
+
+    function updateKeySourceBadge(text, isWarn = false) {
+      const badge = document.getElementById('key-source-badge');
+      if (!badge) return;
+      badge.innerText = text;
+      badge.classList.toggle('bg-emerald-500/10', !isWarn);
+      badge.classList.toggle('text-emerald-400', !isWarn);
+      badge.classList.toggle('border-emerald-500/20', !isWarn);
+      badge.classList.toggle('bg-rose-500/10', isWarn);
+      badge.classList.toggle('text-rose-400', isWarn);
+      badge.classList.toggle('border-rose-500/20', isWarn);
+    }
+
+    function b64urlFromHex(hexString) {
+      return buf2base64(hex2buf(hexString)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async function setKeyDisplaysFromRaw(privHex, pubHex) {
+      currentRawPrivateKeyBytes = hex2buf(privHex);
+      currentRawPublicKeyBytes = hex2buf(pubHex);
+      document.getElementById('server-public-key-display').value = pubHex;
+      document.getElementById('verify-pubkey').value = pubHex;
+      updatePrivateKeyDisplay(privHex);
+    }
+
+    async function persistKeysToFile(privHex, pubHex) {
+      const payload = JSON.stringify({
+          version: 1,
+          algorithm: 'Ed25519',
+          created_at: new Date().toISOString(),
+          private_seed_hex: privHex,
+          public_key_hex: pubHex
+        }, null, 2);
+
+      const savedWhere = [];
+      try {
+        if (navigator.storage && navigator.storage.getDirectory) {
+          const root = await navigator.storage.getDirectory();
+          const fileHandle = await root.getFileHandle(KEY_FILE_NAME, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(payload);
+          await writable.close();
+          savedWhere.push('OPFS ' + KEY_FILE_NAME);
+        }
+      } catch (err) {
+        console.warn('OPFS write failed:', err);
+      }
+      try {
+        localStorage.setItem(KEY_STORAGE_BACKUP, payload);
+        savedWhere.push('localStorage 備份');
+      } catch (err) { /* storage unavailable */ }
+      return savedWhere;
+    }
+
+    async function loadStoredKeys() {
+      let raw = null;
+      let sourceLabel = null;
+      try {
+        if (navigator.storage && navigator.storage.getDirectory) {
+          const root = await navigator.storage.getDirectory();
+          const fileHandle = await root.getFileHandle(KEY_FILE_NAME, { create: false });
+          raw = await (await fileHandle.getFile()).text();
+          sourceLabel = 'OPFS ' + KEY_FILE_NAME;
+        }
+      } catch (err) {
+        raw = null;
+      }
+      if (!raw) {
+        try {
+          raw = localStorage.getItem(KEY_STORAGE_BACKUP);
+          if (raw) sourceLabel = 'localStorage 備份';
+        } catch (err) { /* storage unavailable */ }
+      }
+      if (!raw) return false;
+
+      try {
+        const data = JSON.parse(raw);
+        const seedHex = data.private_seed_hex;
+        const pubHex = data.public_key_hex;
+        if (!/^[0-9a-fA-F]{64}$/.test(seedHex || '') || !/^[0-9a-fA-F]{64}$/.test(pubHex || '')) {
+          throw new Error('金鑰檔內容格式不正確');
+        }
+        const jwk = {
+          kty: 'OKP',
+          crv: 'Ed25519',
+          x: b64urlFromHex(pubHex),
+          d: b64urlFromHex(seedHex)
+        };
+        const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
+        currentCryptoKeyPair = { privateKey: privateKey, publicKey: null };
+        setKeyDisplaysFromRaw(seedHex, pubHex);
+        lastSignatureHex = null;
+        updateKeySourceBadge('已從金鑰檔載入');
+        updateKeyFileInfo(`金鑰檔: ${sourceLabel} | created_at: ${data.created_at || 'unknown'}`);
+        showToast('私鑰已從金鑰檔直接讀取 (' + sourceLabel + ')');
+        return true;
+      } catch (err) {
+        console.warn('Stored keys unusable, will regenerate:', err);
+        return false;
+      }
+    }
+
     async function regenerateFixedKeyPair() {
       try {
         // Generate standard Ed25519 key pair via Web Crypto API
@@ -767,11 +884,19 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         const pubHex = buf2hex(currentRawPublicKeyBytes);
         const privHex = buf2hex(currentRawPrivateKeyBytes);
 
-        document.getElementById('server-public-key-display').value = pubHex;
-        document.getElementById('verify-pubkey').value = pubHex;
-        updatePrivateKeyDisplay(privHex);
+        await setKeyDisplaysFromRaw(privHex, pubHex);
+        lastSignatureHex = null;
 
-        showToast("已成功載入內部固定 Ed25519 金鑰對");
+        const savedWhere = await persistKeysToFile(privHex, pubHex);
+        if (savedWhere.length > 0) {
+          updateKeySourceBadge('新金鑰已建立並寫入金鑰檔');
+          updateKeyFileInfo('金鑰檔已建立: ' + savedWhere.join(' + '));
+          showToast('已生成新 Ed25519 金鑰並寫入金鑰檔');
+        } else {
+          updateKeySourceBadge('新金鑰已建立（無法寫入金鑰檔）', true);
+          updateKeyFileInfo('金鑰檔寫入失敗：此環境無可用儲存，金鑰僅存在於記憶體', true);
+          showToast('金鑰已生成，但此環境無法寫入金鑰檔（重新整理即失效）', true);
+        }
       } catch (e) {
         console.error("WebCrypto Ed25519 fallback:", e);
         // Fallback generator for environments where Ed25519 via SubtleCrypto requires modern polyfill
@@ -794,6 +919,9 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       document.getElementById('server-public-key-display').value = pubHex;
       document.getElementById('verify-pubkey').value = pubHex;
       updatePrivateKeyDisplay(privHex);
+      lastSignatureHex = null;
+      updateKeySourceBadge('模擬模式：金鑰檔未寫入', true);
+      updateKeyFileInfo('此瀏覽器不支援 WebCrypto Ed25519，模擬金鑰不寫入金鑰檔', true);
       showToast("警告：此瀏覽器不支援 WebCrypto Ed25519，已改用無效的模擬金鑰，簽章將無法驗證", true);
     }
 
@@ -1136,7 +1264,11 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     // Initialize application on DOM load
     window.addEventListener('DOMContentLoaded', async () => {
       lucide.createIcons();
-      await regenerateFixedKeyPair();
+      // Key lifecycle: try loading the persisted key file first; create a new one only when it's missing
+      const loadedFromFile = await loadStoredKeys();
+      if (!loadedFromFile) {
+        await regenerateFixedKeyPair();
+      }
       setSamplePayload(1);
       setupFileDropZone();
     });
