@@ -179,10 +179,11 @@
                 </button>
               </div>
             </div>
+            <div id="pass-indicator" class="text-[10px] font-mono text-amber-300">⚠ 仍使用預設密碼：加密僅為混淆，請點「變更密碼」自訂才能真正保護</div>
 
             <!-- Unlock input form (shown when locked) -->
             <div id="key-unlock-form" class="hidden pt-2 border-t border-surface-800 flex gap-2">
-              <input id="key-passphrase-input" type="password" placeholder="輸入私鑰保護密碼 (預設: signcore-master-2026)" class="flex-1 bg-surface-850 text-slate-200 font-mono text-xs px-3 py-1.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500" onkeydown="if(event.key==='Enter') unlockPrivateKeyWithInput()" />
+              <input id="key-passphrase-input" type="password" placeholder="輸入私鑰保護密碼" class="flex-1 bg-surface-850 text-slate-200 font-mono text-xs px-3 py-1.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500" onkeydown="if(event.key==='Enter') unlockPrivateKeyWithInput()" />
               <button onclick="unlockPrivateKeyWithInput()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg flex items-center gap-1 shrink-0 transition">
                 <i data-lucide="unlock" class="w-3.5 h-3.5"></i> 解鎖私鑰
               </button>
@@ -756,15 +757,13 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       );
     }
 
-    async function encryptPrivateSeed(seedBytes, passphrase) {
+    async function encryptPrivateSeed(seedBytes, passphrase, aadBytes) {
       const salt = window.crypto.getRandomValues(new Uint8Array(16));
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
       const aesKey = await deriveAesKey(passphrase, salt, 100000);
-      const ciphertextBuffer = await window.crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv },
-        aesKey,
-        seedBytes
-      );
+      const params = { name: "AES-GCM", iv: iv };
+      if (aadBytes) params.additionalData = aadBytes;
+      const ciphertextBuffer = await window.crypto.subtle.encrypt(params, aesKey, seedBytes);
       return {
         cipher: "AES-256-GCM",
         kdf: "PBKDF2-SHA256",
@@ -775,17 +774,25 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       };
     }
 
-    async function decryptPrivateSeed(encryptionData, passphrase) {
+    async function decryptPrivateSeed(encryptionData, passphrase, aadBytes = null) {
       const salt = hex2buf(encryptionData.salt_hex);
       const iv = hex2buf(encryptionData.iv_hex);
       const ciphertext = hex2buf(encryptionData.ciphertext_hex);
       const aesKey = await deriveAesKey(passphrase, salt, encryptionData.iterations || 100000);
-      const decryptedBuffer = await window.crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv },
-        aesKey,
-        ciphertext
-      );
-      return new Uint8Array(decryptedBuffer);
+      try {
+        const params = { name: "AES-GCM", iv: iv };
+        if (aadBytes) params.additionalData = aadBytes;
+        const decryptedBuffer = await window.crypto.subtle.decrypt(params, aesKey, ciphertext);
+        return { seedBytes: new Uint8Array(decryptedBuffer), legacyEnvelope: false };
+      } catch (err) {
+        // Envelopes written before AAD binding were encrypted without additionalData;
+        // retry once in legacy mode so old files still load (they get re-encrypted afterwards)
+        if (aadBytes) {
+          const legacyBuffer = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, ciphertext);
+          return { seedBytes: new Uint8Array(legacyBuffer), legacyEnvelope: true };
+        }
+        throw err;
+      }
     }
 
     // Toast Notification helper
@@ -889,7 +896,10 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
     async function persistKeysToFile(privHex, pubHex, passphrase = currentPassphrase) {
       const privBytes = hex2buf(privHex);
-      const encryptionData = await encryptPrivateSeed(privBytes, passphrase);
+      // Bind ciphertext to the public key + format version: swapping the public key in the
+      // key file makes AES-GCM authentication fail instead of silently trusting the swap
+      const aad = new TextEncoder().encode('signcore64-v2|Ed25519|' + pubHex);
+      const encryptionData = await encryptPrivateSeed(privBytes, passphrase, aad);
       currentEncryptedData = encryptionData;
 
       const payload = JSON.stringify({
@@ -969,13 +979,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         } else if (data.private_seed_hex && /^[0-9a-fA-F]{64}$/.test(data.private_seed_hex)) {
           // 舊版 v1 明文私鑰：自動升級為 AES-256-GCM 加密保護
           const seedHex = data.private_seed_hex;
-          const jwk = {
-            kty: 'OKP',
-            crv: 'Ed25519',
-            x: b64urlFromHex(pubHex),
-            d: b64urlFromHex(seedHex)
-          };
-          const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
+          const privateKey = await validateKeyPairIntegrity(seedHex, pubHex);
           currentCryptoKeyPair = { privateKey: privateKey, publicKey: null };
           await setKeyDisplaysFromRaw(seedHex, pubHex);
           await persistKeysToFile(seedHex, pubHex, currentPassphrase);
@@ -993,29 +997,47 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       }
     }
 
+    async function validateKeyPairIntegrity(seedHex, pubHex) {
+      // Cross-check the seed against the file's public key via sign+verify roundtrip;
+      // importKey success alone would not catch a tampered/mismatched public key
+      const jwk = {
+        kty: 'OKP',
+        crv: 'Ed25519',
+        x: b64urlFromHex(pubHex),
+        d: b64urlFromHex(seedHex)
+      };
+      const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
+      const testMessage = new TextEncoder().encode('signcore64-key-integrity-check');
+      const testSignature = await window.crypto.subtle.sign({ name: 'Ed25519' }, privateKey, testMessage);
+      const pubKey = await window.crypto.subtle.importKey('raw', hex2buf(pubHex), { name: 'Ed25519' }, true, ['verify']);
+      const verified = await window.crypto.subtle.verify({ name: 'Ed25519' }, pubKey, testSignature, testMessage);
+      if (!verified) {
+        throw new Error('金鑰檔公私鑰不匹配，檔案可能已被篡改');
+      }
+      return privateKey;
+    }
+
     async function tryUnlockWithPassphrase(passphrase, showToastOnError = true) {
       if (!currentEncryptedData) return false;
       try {
-        const decryptedSeed = await decryptPrivateSeed(currentEncryptedData, passphrase);
-        currentRawPrivateKeyBytes = decryptedSeed;
-        const seedHex = buf2hex(decryptedSeed);
         const pubHex = document.getElementById('server-public-key-display').value;
-
-        const jwk = {
-          kty: 'OKP',
-          crv: 'Ed25519',
-          x: b64urlFromHex(pubHex),
-          d: b64urlFromHex(seedHex)
-        };
-        const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
+        const aad = new TextEncoder().encode('signcore64-v2|Ed25519|' + pubHex);
+        const result = await decryptPrivateSeed(currentEncryptedData, passphrase, aad);
+        const seedHex = buf2hex(result.seedBytes);
+        currentRawPrivateKeyBytes = result.seedBytes;
+        const privateKey = await validateKeyPairIntegrity(seedHex, pubHex);
         currentCryptoKeyPair = { privateKey: privateKey, publicKey: null };
         currentPassphrase = passphrase;
+        lastSignatureHex = null;
         setKeyLockState(false);
         updatePrivateKeyDisplay(seedHex);
+        if (result.legacyEnvelope) {
+          await persistKeysToFile(seedHex, pubHex, passphrase);
+        }
         return true;
       } catch (err) {
         if (showToastOnError) {
-          showToast('解鎖失敗：保護密碼錯誤或密文已被篡改', true);
+          showToast('解鎖失敗：保護密碼錯誤或金鑰檔已被篡改', true);
         }
         return false;
       }
@@ -1043,9 +1065,30 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         currentRawPrivateKeyBytes.fill(0); // Zeroize in-memory bytes
         currentRawPrivateKeyBytes = null;
       }
+      // Locking invalidates previously produced signatures
+      lastSignatureHex = null;
+      const sigHexElem = document.getElementById('sig-hex-output');
+      sigHexElem.innerText = '私鑰已鎖定：解鎖後請重新簽章';
+      sigHexElem.classList.remove('text-amber-300');
+      sigHexElem.classList.add('text-slate-400');
+      document.getElementById('sig-base64-output').value = '';
+      document.getElementById('sig-r-part').innerText = '待重新簽章';
+      document.getElementById('sig-s-part').innerText = '待重新簽章';
       setKeyLockState(true);
       updatePrivateKeyDisplay('');
       showToast('私鑰已鎖定，記憶體快取已安全抹除');
+    }
+
+    function updatePassphraseIndicator() {
+      const elem = document.getElementById('pass-indicator');
+      if (!elem) return;
+      if (currentPassphrase === DEFAULT_PASSPHRASE) {
+        elem.innerText = '⚠ 仍使用預設密碼：加密僅為混淆，請點「變更密碼」自訂才能真正保護';
+        elem.className = 'text-[10px] font-mono text-amber-300';
+      } else {
+        elem.innerText = '已使用自訂密碼保護';
+        elem.className = 'text-[10px] font-mono text-emerald-400';
+      }
     }
 
     function setKeyLockState(locked) {
@@ -1072,6 +1115,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         if (lockBtn) lockBtn.classList.remove('hidden');
         if (unlockForm) unlockForm.classList.add('hidden');
       }
+      updatePassphraseIndicator();
       lucide.createIcons();
     }
 
@@ -1090,6 +1134,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       const privHex = buf2hex(currentRawPrivateKeyBytes);
       const pubHex = buf2hex(currentRawPublicKeyBytes);
       const savedWhere = await persistKeysToFile(privHex, pubHex, currentPassphrase);
+      updatePassphraseIndicator();
       showToast('私鑰已成功使用新密碼重新加密儲存！');
       updateKeyFileInfo('金鑰檔已使用新密碼加密: ' + savedWhere.join(' + '));
     }
@@ -1260,8 +1305,8 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     }
 
     async function executeSign() {
-      if (isKeyLocked || !currentCryptoKeyPair || !currentCryptoKeyPair.privateKey) {
-        showToast("⚠️ 私鑰處於加密鎖定狀態！請先輸入密碼解鎖私鑰", true);
+      if (isKeyLocked) {
+        showToast("私鑰已鎖定，請先輸入密碼解鎖後再簽章", true);
         const passInput = document.getElementById('key-passphrase-input');
         if (passInput) passInput.focus();
         return;
