@@ -157,11 +157,38 @@
               <button onclick="toggleKeyVisibility()" class="p-1.5 hover:bg-surface-800 rounded text-slate-400 hover:text-white" title="顯示/隱藏">
                 <i data-lucide="eye" id="eye-icon" class="w-4 h-4"></i>
               </button>
-              <button onclick="copyToClipboard('server-private-key-display', '私鑰已複製')" class="p-1.5 hover:bg-surface-800 rounded text-slate-400 hover:text-white" title="複製">
+              <button onclick="copyPrivateKey()" class="p-1.5 hover:bg-surface-800 rounded text-slate-400 hover:text-white" title="複製私鑰">
                 <i data-lucide="copy" class="w-4 h-4"></i>
               </button>
             </div>
           </div>
+
+          <!-- Encryption & Lock Controls -->
+          <div id="key-lock-controls" class="p-3 bg-surface-900 rounded-xl border border-surface-700/80 space-y-2">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div class="flex items-center gap-1.5 font-medium" id="lock-status-indicator">
+                <span id="lock-status-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span id="lock-status-text" class="text-emerald-400 text-xs font-mono">AES-256-GCM 已加密 (記憶體已解鎖)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button id="btn-lock-key" onclick="lockPrivateKey()" class="px-2.5 py-1 bg-surface-800 hover:bg-surface-700 text-amber-300 hover:text-white rounded-lg text-[11px] border border-surface-700 flex items-center gap-1 transition" title="抹除記憶體中的私鑰，進入鎖定狀態">
+                  <i data-lucide="lock" class="w-3 h-3"></i> 鎖定私鑰
+                </button>
+                <button id="btn-change-pass" onclick="changeKeyPassphrase()" class="px-2.5 py-1 bg-surface-800 hover:bg-surface-700 text-slate-300 hover:text-white rounded-lg text-[11px] border border-surface-700 flex items-center gap-1 transition" title="變更私鑰 AES-256-GCM 加密保護密碼">
+                  <i data-lucide="key" class="w-3 h-3"></i> 變更密碼
+                </button>
+              </div>
+            </div>
+
+            <!-- Unlock input form (shown when locked) -->
+            <div id="key-unlock-form" class="hidden pt-2 border-t border-surface-800 flex gap-2">
+              <input id="key-passphrase-input" type="password" placeholder="輸入私鑰保護密碼 (預設: signcore-master-2026)" class="flex-1 bg-surface-850 text-slate-200 font-mono text-xs px-3 py-1.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500" onkeydown="if(event.key==='Enter') unlockPrivateKeyWithInput()" />
+              <button onclick="unlockPrivateKeyWithInput()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg flex items-center gap-1 shrink-0 transition">
+                <i data-lucide="unlock" class="w-3.5 h-3.5"></i> 解鎖私鑰
+              </button>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between text-xs pt-0.5">
             <p id="key-file-info" class="text-[11px] font-mono text-slate-500">金鑰檔: 初始化中…</p>
             <button onclick="clearStoredKeys()" class="text-rose-400 hover:text-rose-300 text-[11px] flex items-center gap-1 transition" title="抹除瀏覽器 OPFS 與 localStorage 中的金鑰並重新生成">
@@ -169,7 +196,7 @@
             </button>
           </div>
           <p class="text-xs text-slate-500">
-            * 私鑰持久化於瀏覽器 OPFS 私有檔案 <span class="font-mono">signcore-ed25519-key.json</span>（localStorage 為後備鏡像）：檔案不存在時自動建立，存在時於啟動直接讀取。重設金鑰會覆寫此檔。實務架構中，此私鑰應由 KMS / HSM 生成且不可匯出，永不離開伺服器硬體；此處僅供模擬與視覺化驗證。
+            * 私鑰採用 <span class="font-mono text-indigo-400">AES-256-GCM (PBKDF2-SHA256, 100k 迭代)</span> 加密持久化於瀏覽器 OPFS 私有檔案 <span class="font-mono">signcore-ed25519-key.json</span>，本機絕不明文落地儲存。實務生產架構中，私鑰由 KMS / HSM 生成保管且不可匯出；此處完整演示密鑰在靜態存儲、記憶體解鎖與安全抹除的保護機制。
           </p>
         </div>
 
@@ -363,13 +390,14 @@
           <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
             <i data-lucide="server" class="w-5 h-5"></i>
           </div>
-          <h3 class="font-semibold text-white text-base">1. 固定私鑰保管 (HSM / KMS)</h3>
+          <h3 class="font-semibold text-white text-base">1. 固定私鑰加密保管 (HSM / KMS)</h3>
           <p class="text-xs text-slate-400 leading-relaxed">
-            採用 AWS CloudHSM、GCP Cloud KMS 或 HashiCorp Vault 的非對稱簽署引擎。私鑰在硬體安全模組內生成且**不可匯出 (Non-exportable)**，外部僅能調用 <code class="text-indigo-300">Sign()</code> 接口，杜絕密鑰外洩風險。
+            採用 AWS CloudHSM、GCP Cloud KMS 或 HashiCorp Vault 的非對稱簽署引擎。私鑰在硬體模組內生成且**不可匯出 (Non-exportable)**。微服務若需落盤持久化，強制使用信封加密 (Envelope Encryption) 或 PKCS#8 EncryptedPrivateKeyInfo (PBES2 / AES-256-GCM)，杜絕明文外洩。
           </p>
           <ul class="text-xs text-slate-400 space-y-1 list-disc list-inside">
             <li>符合 FIPS 140-2 Level 3 認證標準</li>
-            <li>內部記憶體抹除機制 (Zeroize on exit)</li>
+            <li>靜態存儲強加密 (AES-256-GCM + PBKDF2 100k 迭代)</li>
+            <li>內部記憶體抹除機制 (Zeroize on exit / Lock)</li>
             <li>IAM 嚴格白名單與 RBAC 最小特權</li>
           </ul>
         </div>
@@ -653,6 +681,10 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     let currentRawPublicKeyBytes = null;
     let isPrivateKeyVisible = false;
     let lastSignatureHex = null;
+    let isKeyLocked = false;
+    let currentEncryptedData = null; // Stored AES-256-GCM envelope
+    const DEFAULT_PASSPHRASE = 'signcore-master-2026';
+    let currentPassphrase = DEFAULT_PASSPHRASE;
 
     // --- Private key persistence (file-based) ---
     // Primary store: browser OPFS file "signcore-ed25519-key.json".
@@ -698,6 +730,62 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         bytes[i] = binaryString.charCodeAt(i);
       }
       return bytes;
+    }
+
+    // --- Key Encryption (PBKDF2-SHA256 + AES-256-GCM) ---
+    async function deriveAesKey(passphrase, saltBytes, iterations = 100000) {
+      const enc = new TextEncoder();
+      const baseKey = await window.crypto.subtle.importKey(
+        "raw",
+        enc.encode(passphrase),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+      return await window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: saltBytes,
+          iterations: iterations,
+          hash: "SHA-256"
+        },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function encryptPrivateSeed(seedBytes, passphrase) {
+      const salt = window.crypto.getRandomValues(new Uint8Array(16));
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const aesKey = await deriveAesKey(passphrase, salt, 100000);
+      const ciphertextBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        aesKey,
+        seedBytes
+      );
+      return {
+        cipher: "AES-256-GCM",
+        kdf: "PBKDF2-SHA256",
+        iterations: 100000,
+        salt_hex: buf2hex(salt),
+        iv_hex: buf2hex(iv),
+        ciphertext_hex: buf2hex(ciphertextBuffer)
+      };
+    }
+
+    async function decryptPrivateSeed(encryptionData, passphrase) {
+      const salt = hex2buf(encryptionData.salt_hex);
+      const iv = hex2buf(encryptionData.iv_hex);
+      const ciphertext = hex2buf(encryptionData.ciphertext_hex);
+      const aesKey = await deriveAesKey(passphrase, salt, encryptionData.iterations || 100000);
+      const decryptedBuffer = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        aesKey,
+        ciphertext
+      );
+      return new Uint8Array(decryptedBuffer);
     }
 
     // Toast Notification helper
@@ -799,14 +887,18 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       updatePrivateKeyDisplay(privHex);
     }
 
-    async function persistKeysToFile(privHex, pubHex) {
+    async function persistKeysToFile(privHex, pubHex, passphrase = currentPassphrase) {
+      const privBytes = hex2buf(privHex);
+      const encryptionData = await encryptPrivateSeed(privBytes, passphrase);
+      currentEncryptedData = encryptionData;
+
       const payload = JSON.stringify({
-          version: 1,
-          algorithm: 'Ed25519',
-          created_at: new Date().toISOString(),
-          private_seed_hex: privHex,
-          public_key_hex: pubHex
-        }, null, 2);
+        version: 2,
+        algorithm: 'Ed25519',
+        created_at: new Date().toISOString(),
+        public_key_hex: pubHex,
+        encryption: encryptionData
+      }, null, 2);
 
       const savedWhere = [];
       try {
@@ -851,11 +943,64 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
       try {
         const data = JSON.parse(raw);
-        const seedHex = data.private_seed_hex;
         const pubHex = data.public_key_hex;
-        if (!/^[0-9a-fA-F]{64}$/.test(seedHex || '') || !/^[0-9a-fA-F]{64}$/.test(pubHex || '')) {
-          throw new Error('金鑰檔內容格式不正確');
+        if (!/^[0-9a-fA-F]{64}$/.test(pubHex || '')) {
+          throw new Error('金鑰檔公鑰內容格式不正確');
         }
+
+        currentRawPublicKeyBytes = hex2buf(pubHex);
+        document.getElementById('server-public-key-display').value = pubHex;
+        document.getElementById('verify-pubkey').value = pubHex;
+
+        if (data.encryption && data.encryption.ciphertext_hex) {
+          currentEncryptedData = data.encryption;
+          updateKeySourceBadge('AES-256-GCM 加密金鑰檔');
+          updateKeyFileInfo(`金鑰檔: ${sourceLabel} | 加密: AES-256-GCM (PBKDF2 100k)`);
+
+          const unlocked = await tryUnlockWithPassphrase(currentPassphrase, false);
+          if (unlocked) {
+            showToast('私鑰已從加密金鑰檔載入並解鎖 (' + sourceLabel + ')');
+          } else {
+            setKeyLockState(true);
+            updatePrivateKeyDisplay('');
+            showToast('金鑰檔受密碼保護，請輸入密碼以解鎖私鑰', true);
+          }
+          return true;
+        } else if (data.private_seed_hex && /^[0-9a-fA-F]{64}$/.test(data.private_seed_hex)) {
+          // 舊版 v1 明文私鑰：自動升級為 AES-256-GCM 加密保護
+          const seedHex = data.private_seed_hex;
+          const jwk = {
+            kty: 'OKP',
+            crv: 'Ed25519',
+            x: b64urlFromHex(pubHex),
+            d: b64urlFromHex(seedHex)
+          };
+          const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
+          currentCryptoKeyPair = { privateKey: privateKey, publicKey: null };
+          await setKeyDisplaysFromRaw(seedHex, pubHex);
+          await persistKeysToFile(seedHex, pubHex, currentPassphrase);
+          setKeyLockState(false);
+          updateKeySourceBadge('已升級為 AES-256-GCM 加密保護');
+          updateKeyFileInfo(`金鑰檔已升級加密: ${sourceLabel}`);
+          showToast('舊版明文私鑰已自動升級為 AES-256-GCM 加密保護');
+          return true;
+        } else {
+          throw new Error('金鑰檔缺少有效私鑰資料');
+        }
+      } catch (err) {
+        console.warn('Stored keys unusable, will regenerate:', err);
+        return false;
+      }
+    }
+
+    async function tryUnlockWithPassphrase(passphrase, showToastOnError = true) {
+      if (!currentEncryptedData) return false;
+      try {
+        const decryptedSeed = await decryptPrivateSeed(currentEncryptedData, passphrase);
+        currentRawPrivateKeyBytes = decryptedSeed;
+        const seedHex = buf2hex(decryptedSeed);
+        const pubHex = document.getElementById('server-public-key-display').value;
+
         const jwk = {
           kty: 'OKP',
           crv: 'Ed25519',
@@ -864,16 +1009,89 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         };
         const privateKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, true, ['sign']);
         currentCryptoKeyPair = { privateKey: privateKey, publicKey: null };
-        setKeyDisplaysFromRaw(seedHex, pubHex);
-        lastSignatureHex = null;
-        updateKeySourceBadge('已從金鑰檔載入');
-        updateKeyFileInfo(`金鑰檔: ${sourceLabel} | created_at: ${data.created_at || 'unknown'}`);
-        showToast('私鑰已從金鑰檔直接讀取 (' + sourceLabel + ')');
+        currentPassphrase = passphrase;
+        setKeyLockState(false);
+        updatePrivateKeyDisplay(seedHex);
         return true;
       } catch (err) {
-        console.warn('Stored keys unusable, will regenerate:', err);
+        if (showToastOnError) {
+          showToast('解鎖失敗：保護密碼錯誤或密文已被篡改', true);
+        }
         return false;
       }
+    }
+
+    async function unlockPrivateKeyWithInput() {
+      const input = document.getElementById('key-passphrase-input');
+      const pass = input.value;
+      if (!pass) {
+        showToast('請輸入私鑰解鎖密碼', true);
+        return;
+      }
+      const success = await tryUnlockWithPassphrase(pass, true);
+      if (success) {
+        input.value = '';
+        showToast('✓ 私鑰已成功解密，已恢復簽署功能！');
+      }
+    }
+
+    function lockPrivateKey() {
+      if (isKeyLocked) return;
+      isKeyLocked = true;
+      currentCryptoKeyPair = null;
+      if (currentRawPrivateKeyBytes) {
+        currentRawPrivateKeyBytes.fill(0); // Zeroize in-memory bytes
+        currentRawPrivateKeyBytes = null;
+      }
+      setKeyLockState(true);
+      updatePrivateKeyDisplay('');
+      showToast('私鑰已鎖定，記憶體快取已安全抹除');
+    }
+
+    function setKeyLockState(locked) {
+      isKeyLocked = locked;
+      const statusDot = document.getElementById('lock-status-dot');
+      const statusText = document.getElementById('lock-status-text');
+      const lockBtn = document.getElementById('btn-lock-key');
+      const unlockForm = document.getElementById('key-unlock-form');
+
+      if (locked) {
+        if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-pulse';
+        if (statusText) {
+          statusText.className = 'text-rose-400 text-xs font-mono';
+          statusText.innerText = 'AES-256-GCM 已鎖定 (記憶體已清零)';
+        }
+        if (lockBtn) lockBtn.classList.add('hidden');
+        if (unlockForm) unlockForm.classList.remove('hidden');
+      } else {
+        if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        if (statusText) {
+          statusText.className = 'text-emerald-400 text-xs font-mono';
+          statusText.innerText = 'AES-256-GCM 已加密 (記憶體已解鎖)';
+        }
+        if (lockBtn) lockBtn.classList.remove('hidden');
+        if (unlockForm) unlockForm.classList.add('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    async function changeKeyPassphrase() {
+      if (isKeyLocked) {
+        showToast('請先解鎖私鑰後再變更加密密碼', true);
+        return;
+      }
+      const newPass = window.prompt('請輸入新的私鑰保護密碼 (將以 AES-256-GCM 重新加密私鑰):');
+      if (!newPass) return;
+      if (newPass.length < 6) {
+        showToast('密碼長度建議至少 6 個字元', true);
+        return;
+      }
+      currentPassphrase = newPass;
+      const privHex = buf2hex(currentRawPrivateKeyBytes);
+      const pubHex = buf2hex(currentRawPublicKeyBytes);
+      const savedWhere = await persistKeysToFile(privHex, pubHex, currentPassphrase);
+      showToast('私鑰已成功使用新密碼重新加密儲存！');
+      updateKeyFileInfo('金鑰檔已使用新密碼加密: ' + savedWhere.join(' + '));
     }
 
     async function regenerateFixedKeyPair() {
@@ -900,14 +1118,15 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         const pubHex = buf2hex(currentRawPublicKeyBytes);
         const privHex = buf2hex(currentRawPrivateKeyBytes);
 
+        setKeyLockState(false);
         await setKeyDisplaysFromRaw(privHex, pubHex);
         lastSignatureHex = null;
 
-        const savedWhere = await persistKeysToFile(privHex, pubHex);
+        const savedWhere = await persistKeysToFile(privHex, pubHex, currentPassphrase);
         if (savedWhere.length > 0) {
-          updateKeySourceBadge('新金鑰已建立並寫入金鑰檔');
-          updateKeyFileInfo('金鑰檔已建立: ' + savedWhere.join(' + '));
-          showToast('已生成新 Ed25519 金鑰並寫入金鑰檔');
+          updateKeySourceBadge('新金鑰已建立 (AES-256-GCM 加密寫入)');
+          updateKeyFileInfo('金鑰檔已加密建立: ' + savedWhere.join(' + '));
+          showToast('已生成新 Ed25519 金鑰並以 AES-256-GCM 加密寫入金鑰檔');
         } else {
           updateKeySourceBadge('新金鑰已建立（無法寫入金鑰檔）', true);
           updateKeyFileInfo('金鑰檔寫入失敗：此環境無可用儲存，金鑰僅存在於記憶體', true);
@@ -922,8 +1141,6 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
     function generateFallbackKeys() {
       // Degraded simulation mode: browser lacks WebCrypto Ed25519 support.
-      // These are random bytes, NOT valid keys — verify will always fail here.
-      // The UI must make this obvious to avoid misleading the user.
       currentCryptoKeyPair = null;
       currentRawPrivateKeyBytes = new Uint8Array(32);
       currentRawPublicKeyBytes = new Uint8Array(32);
@@ -934,6 +1151,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       const privHex = buf2hex(currentRawPrivateKeyBytes);
       document.getElementById('server-public-key-display').value = pubHex;
       document.getElementById('verify-pubkey').value = pubHex;
+      setKeyLockState(false);
       updatePrivateKeyDisplay(privHex);
       lastSignatureHex = null;
       updateKeySourceBadge('模擬模式：金鑰檔未寫入', true);
@@ -943,17 +1161,34 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
     function updatePrivateKeyDisplay(hex) {
       const displayElem = document.getElementById('server-private-key-display');
-      displayElem.value = hex;
-      displayElem.type = isPrivateKeyVisible ? 'text' : 'password';
+      if (isKeyLocked) {
+        displayElem.value = '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••';
+        displayElem.type = 'text';
+      } else {
+        displayElem.value = hex || (currentRawPrivateKeyBytes ? buf2hex(currentRawPrivateKeyBytes) : '');
+        displayElem.type = isPrivateKeyVisible ? 'text' : 'password';
+      }
     }
 
     function toggleKeyVisibility() {
+      if (isKeyLocked) {
+        showToast('私鑰處於鎖定狀態，無法檢視內容', true);
+        return;
+      }
       isPrivateKeyVisible = !isPrivateKeyVisible;
       const displayElem = document.getElementById('server-private-key-display');
       const eyeIcon = document.getElementById('eye-icon');
       displayElem.type = isPrivateKeyVisible ? 'text' : 'password';
       eyeIcon.setAttribute('data-lucide', isPrivateKeyVisible ? 'eye-off' : 'eye');
       lucide.createIcons();
+    }
+
+    function copyPrivateKey() {
+      if (isKeyLocked || !currentRawPrivateKeyBytes) {
+        showToast('私鑰處於鎖定狀態，請先解鎖私鑰', true);
+        return;
+      }
+      copyToClipboard(buf2hex(currentRawPrivateKeyBytes), '私鑰已複製');
     }
 
     function copyPublicKeyAsPem() {
@@ -988,6 +1223,8 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         localStorage.removeItem(KEY_STORAGE_BACKUP);
       } catch (err) { /* ignore */ }
 
+      currentEncryptedData = null;
+      currentPassphrase = DEFAULT_PASSPHRASE;
       showToast("已抹除本機儲存的金鑰檔案");
       await regenerateFixedKeyPair();
     }
@@ -1023,6 +1260,13 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     }
 
     async function executeSign() {
+      if (isKeyLocked || !currentCryptoKeyPair || !currentCryptoKeyPair.privateKey) {
+        showToast("⚠️ 私鑰處於加密鎖定狀態！請先輸入密碼解鎖私鑰", true);
+        const passInput = document.getElementById('key-passphrase-input');
+        if (passInput) passInput.focus();
+        return;
+      }
+
       const payloadText = document.getElementById('input-payload').value;
       if (!payloadText) {
         showToast("請輸入要簽章的資料內容", true);
