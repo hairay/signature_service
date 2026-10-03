@@ -34,7 +34,16 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    // 不信任 client 的 Host header：以服務自身位址為 base 解析；無效輸入轉 400 而非 crash 服務
+    let parsedUrl;
+    try {
+        const baseHost = HOST.includes(':') && !HOST.startsWith('[') ? `[${HOST}]` : HOST;
+        parsedUrl = new URL(req.url, `http://${baseHost}:${PORT}`);
+    } catch (_) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ code: 400, error: '無效的請求 URL' }));
+        return;
+    }
 
     // 端點 1: GET /api/v1/crypto/public-key
     if (req.method === 'GET' && parsedUrl.pathname === '/api/v1/crypto/public-key') {
@@ -52,12 +61,21 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 端點 2: POST /api/v1/crypto/sign
-    if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/sign') {
+    // 端點 2: POST /api/v1/crypto/sign (亦相容 /crypto/sign)
+    if (req.method === 'POST' && (parsedUrl.pathname === '/api/v1/crypto/sign' || parsedUrl.pathname === '/crypto/sign')) {
         // 以 Buffer 收集、結束時一次解碼：避免多位元組 UTF-8 字元跨 chunk 邊界被截斷
         const chunks = [];
         let totalBytes = 0;
         let tooLarge = false;
+
+        req.on('error', (err) => {
+            console.warn(`[POST 串流中斷] 簽署請求:`, err.message);
+            if (!res.headersSent) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ code: 400, error: '請求傳輸中斷: ' + err.message }));
+            }
+        });
+
         req.on('data', chunk => {
             if (tooLarge) return;
             chunks.push(chunk);
@@ -117,11 +135,20 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 端點 3: POST /api/v1/crypto/verify (供測試程式校驗)
-    if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/verify') {
+    // 端點 3: POST /api/v1/crypto/verify (亦相容 /crypto/verify，供測試程式校驗)
+    if (req.method === 'POST' && (parsedUrl.pathname === '/api/v1/crypto/verify' || parsedUrl.pathname === '/crypto/verify')) {
         const chunks = [];
         let totalBytes = 0;
         let tooLarge = false;
+
+        req.on('error', (err) => {
+            console.warn(`[POST 串流中斷] 驗證請求:`, err.message);
+            if (!res.headersSent) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ code: 400, error: '請求傳輸中斷: ' + err.message, valid: false }));
+            }
+        });
+
         req.on('data', chunk => {
             if (tooLarge) return;
             chunks.push(chunk);
@@ -190,6 +217,15 @@ const server = http.createServer((req, res) => {
 
     res.writeHead(404);
     res.end(JSON.stringify({ code: 404, error: '端點不存在' }));
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`[錯誤] 埠號 ${PORT} 已被其他進程佔用 (EADDRINUSE)，請更換埠號或終止舊進程。`);
+    } else {
+        console.error('[伺服器錯誤]', err.message);
+    }
+    process.exit(1);
 });
 
 server.listen(PORT, HOST, () => {

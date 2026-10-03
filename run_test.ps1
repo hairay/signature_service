@@ -3,11 +3,19 @@ param(
     # Optional: path to the page-exported PKCS#8 PEM (ed25519-private.key).
     # When set, tests run against local_signature_bridge.js (same key as the
     # browser page) instead of the throwaway-key mock server.
-    [string]$BridgeKey = ""
+    [string]$BridgeKey = "",
+    # Optional: switch to test remote_signature_service.js
+    [switch]$Remote
 )
 # SignCore 64 - Test Runner (gcc + node in PATH required; exit code reflects test result)
 $ErrorActionPreference = 'Stop'
-$modeLabel = if ($BridgeKey) { "Bridge mode (page key: $BridgeKey)" } else { "Mock mode (throwaway key)" }
+$modeLabel = if ($Remote) {
+    "Remote service mode (remote_signature_service.js)"
+} elseif ($BridgeKey) {
+    "Bridge mode (page key: $BridgeKey)"
+} else {
+    "Mock mode (throwaway key)"
+}
 Write-Host "========================================================"
 Write-Host " SignCore 64 - Automated End-to-End Test (port $Port)"
 Write-Host " Mode: $modeLabel"
@@ -37,7 +45,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "Compilation successful: sign_client_test.exe"
 
-if ($BridgeKey) {
+if ($Remote) {
+    Write-Host "Step 2: Starting remote server (node remote_signature_service.js $Port 127.0.0.1)..."
+    $serverProcess = Start-Process node -ArgumentList @("remote_signature_service.js", "$Port", "127.0.0.1") -PassThru -WindowStyle Hidden
+} elseif ($BridgeKey) {
     Write-Host "Step 2: Starting bridge server (node local_signature_bridge.js $Port $BridgeKey)..."
     $serverProcess = Start-Process node -ArgumentList @("local_signature_bridge.js", "$Port", "`"$BridgeKey`"") -PassThru -WindowStyle Hidden
 } else {
@@ -56,12 +67,12 @@ for ($i = 0; $i -lt 20; $i++) {
     }
 }
 if (-not $ready) {
-    $serverName = if ($BridgeKey) { "Bridge server" } else { "Mock server" }
+    $serverName = if ($Remote) { "Remote server" } elseif ($BridgeKey) { "Bridge server" } else { "Mock server" }
     Write-Host "$serverName failed to start on port $Port" -ForegroundColor Red
     if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
-$readyName = if ($BridgeKey) { "Bridge" } else { "Mock server" }
+$readyName = if ($Remote) { "Remote server" } elseif ($BridgeKey) { "Bridge" } else { "Mock server" }
 Write-Host "$readyName ready at http://127.0.0.1:$Port"
 
 Write-Host "Step 3: Running C test client..."
@@ -77,7 +88,7 @@ try {
 } finally {
     if ($serverProcess) {
         Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
-        $stoppedName = if ($BridgeKey) { "Bridge server" } else { "Mock server" }
+        $stoppedName = if ($Remote) { "Remote server" } elseif ($BridgeKey) { "Bridge server" } else { "Mock server" }
         Write-Host "$stoppedName stopped."
     }
 }

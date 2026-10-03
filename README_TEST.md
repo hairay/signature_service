@@ -11,7 +11,8 @@
 | `sign_client_test.c` | **C 語言測試客戶端**：零第三方函式庫依賴（Windows 使用 Winsock，Linux/macOS 使用 POSIX Socket），負責發送 HTTP GET/POST、解析 JSON 取得 64-byte 簽章、分解 R/S 分量與驗證。 |
 | `mock_signature_server.js` | **本機模擬微服務**：純 Node.js 原生實作（零 npm 依賴），提供 `GET /api/v1/crypto/public-key`、`POST /api/v1/crypto/sign` 與 `POST /api/v1/crypto/verify` 端點。每次啟動生成拋棄式金鑰。 |
 | `local_signature_bridge.js` | **本機簽章橋接服務**：載入頁面匯出的 PKCS#8 PEM（`ed25519-private.key`）作為私鑰，與瀏覽器頁面共用同一把金鑰（見下方 Bridge 模式）。 |
-| `run_test.ps1` | **PowerShell 一鍵自動化測試腳本**：自動編譯 C 程式、啟動背景伺服器、執行 4 項測試並於結束後自動清理關閉。 |
+| `remote_signature_service.js` | **遠端簽章微服務**：預設對外監聽 `0.0.0.0`，具備 API Key 鑑權（常數時間比對）、優雅關閉與環境變數注入（見下方 Remote 模式）。 |
+| `run_test.ps1` | **PowerShell 一鍵自動化測試腳本**：自動編譯 C 程式、啟動背景伺服器（支援 Mock / Bridge / Remote 模式）、執行 4 項測試並於結束後自動清理關閉。 |
 | `run_test.bat` | **Windows CMD 一鍵測試批次檔**。 |
 
 ---
@@ -82,3 +83,15 @@ run_test.bat
 ```powershell
 .\run_test.ps1 -BridgeKey ed25519-private.key -Port 8090
 ```
+
+---
+
+## Remote 模式：測試遠端簽章微服務
+
+若要以 C 語言客戶端對 `remote_signature_service.js` 進行端對端完整檢測：
+
+```powershell
+.\run_test.ps1 -Remote -Port 8088
+```
+
+腳本會自動以本機位址啟動遠端簽章服務、執行健康檢查探針、執行 4 項核心密碼學檢驗，並於完成後自動關閉伺服器。
