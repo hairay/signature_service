@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/></svg>" />
   <title>Ed25519 數位簽章服務系統架構與互動工作台</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tailwind CSS CDN (pinned version + SRI) -->
+  <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.16" integrity="sha384-xfdAGp2liCPeLP6u4jNa4ccgGFMgMrfuLvsbb2pxRzMEA+P5fcxdTVgDRwQJrA8d" crossorigin="anonymous"></script>
+  <!-- Lucide Icons (pinned version + SRI) -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js" integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM" crossorigin="anonymous"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -94,12 +95,22 @@
       </nav>
 
       <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+        <div class="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           KMS HSM: ONLINE
         </div>
+        <button id="mobile-menu-btn" onclick="toggleMobileMenu(event)" class="md:hidden p-2 rounded-lg bg-surface-850 border border-surface-700 text-slate-300">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
       </div>
     </div>
+    <!-- Mobile tab navigation -->
+    <nav id="mobile-nav" class="hidden md:hidden border-t border-surface-800 bg-surface-900/95 backdrop-blur px-4 py-2 space-y-1">
+      <button onclick="switchTab('workbench')" class="mobile-tab-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 bg-surface-800 flex items-center gap-2"><i data-lucide="play" class="w-4 h-4"></i> 即時簽章工作台</button>
+      <button onclick="switchTab('verifier')" class="mobile-tab-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> 簽章真偽校驗</button>
+      <button onclick="switchTab('arch')" class="mobile-tab-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 flex items-center gap-2"><i data-lucide="layers" class="w-4 h-4"></i> 系統架構規範</button>
+      <button onclick="switchTab('api')" class="mobile-tab-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 flex items-center gap-2"><i data-lucide="code" class="w-4 h-4"></i> API 串接程式碼</button>
+    </nav>
   </header>
 
   <!-- Notification Toast -->
@@ -200,10 +211,10 @@
 
             <div>
               <label class="block text-xs font-medium text-slate-400 mb-1">或 上傳二進位檔案 / 憑證 (即時計算雜湊簽署)</label>
-              <div class="border-2 border-dashed border-surface-700 rounded-xl p-4 text-center hover:border-indigo-500 transition cursor-pointer relative bg-surface-900/50">
+              <div id="file-drop-zone" class="border-2 border-dashed border-surface-700 rounded-xl p-4 text-center hover:border-indigo-500 transition cursor-pointer relative bg-surface-900/50">
                 <input type="file" id="file-uploader" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="handleFileUpload(event)">
-                <i data-lucide="upload-cloud" class="w-6 h-6 text-slate-400 mx-auto mb-1"></i>
-                <p id="file-upload-hint" class="text-xs text-slate-400 font-mono">點擊或拖曳檔案至此 (自動載入)</p>
+                <i data-lucide="upload-cloud" class="w-6 h-6 text-slate-400 mx-auto mb-1 pointer-events-none"></i>
+                <p id="file-upload-hint" class="text-xs text-slate-400 font-mono pointer-events-none">點擊或拖曳檔案至此 (自動載入)</p>
               </div>
             </div>
 
@@ -440,7 +451,7 @@
 
         <!-- Endpoints List -->
         <div class="space-y-3">
-          <div class="bg-surface-900 p-4 rounded-xl border border-surface-750 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="bg-surface-900 p-4 rounded-xl border border-surface-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div class="flex items-center gap-3">
               <span class="px-2.5 py-1 rounded bg-indigo-600 font-bold text-xs font-mono text-white">POST</span>
               <code class="text-sm font-mono text-slate-200">/api/v1/crypto/sign</code>
@@ -449,7 +460,7 @@
             <span class="text-xs text-amber-400 font-mono">Header: X-Api-Key / Bearer JWT</span>
           </div>
 
-          <div class="bg-surface-900 p-4 rounded-xl border border-surface-750 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="bg-surface-900 p-4 rounded-xl border border-surface-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div class="flex items-center gap-3">
               <span class="px-2.5 py-1 rounded bg-emerald-600 font-bold text-xs font-mono text-white">GET</span>
               <code class="text-sm font-mono text-slate-200">/api/v1/crypto/public-key</code>
@@ -475,7 +486,7 @@
             </button>
 
             <!-- cURL snippet -->
-            <pre id="code-curl" class="code-block bg-surface-900 p-4 rounded-xl border border-surface-750 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
+            <pre id="code-curl" class="code-block bg-surface-900 p-4 rounded-xl border border-surface-700 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
 # 1. 呼叫簽署 API 端點 (POST 請求)
 curl -X POST https://api.yourdomain.com/api/v1/crypto/sign \
   -H "Content-Type: application/json" \
@@ -498,7 +509,7 @@ curl -X POST https://api.yourdomain.com/api/v1/crypto/sign \
 # }</pre>
 
             <!-- Node.js snippet -->
-            <pre id="code-node" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-750 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
+            <pre id="code-node" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-700 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
 import crypto from 'node:crypto';
 
 // 伺服器端簽署實作範例 (固定 Ed25519 私鑰)
@@ -544,7 +555,7 @@ export function verifySignature(payloadString, signatureHex, publicKeyRawBuffer)
 }</pre>
 
             <!-- Python snippet -->
-            <pre id="code-python" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-750 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
+            <pre id="code-python" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-700 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
 # 使用官方標準推薦庫: pip install cryptography
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
@@ -578,7 +589,7 @@ def verify_data(data_str: str, signature_hex: str, public_key_hex: str) -> bool:
         return False</pre>
 
             <!-- Go snippet -->
-            <pre id="code-go" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-750 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
+            <pre id="code-go" class="code-block hidden bg-surface-900 p-4 rounded-xl border border-surface-700 font-mono text-xs text-slate-300 overflow-x-auto leading-5">
 package main
 
 import (
@@ -624,6 +635,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     let currentRawPrivateKeyBytes = null;
     let currentRawPublicKeyBytes = null;
     let isPrivateKeyVisible = false;
+    let lastSignatureHex = null;
 
     // Utility: Convert ArrayBuffer to Hex string
     function buf2hex(buffer) {
@@ -638,7 +650,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       if (cleanHex.length % 2 !== 0) throw new Error('Hex 長度必須為偶數');
       const bytes = new Uint8Array(cleanHex.length / 2);
       for (let i = 0; i < cleanHex.length; i += 2) {
-        bytes[i / 2] = parseInt(cleanHex.substr(i, 2), 16);
+        bytes[i / 2] = parseInt(cleanHex.slice(i, i + 2), 16);
       }
       return bytes;
     }
@@ -692,7 +704,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     }
 
     // Copy to clipboard without external permissions
-    function copyToClipboard(elementIdOrText, successMsg = '已複製到剪貼簿') {
+    async function copyToClipboard(elementIdOrText, successMsg = '已複製到剪貼簿') {
       let textToCopy = '';
       const elem = document.getElementById(elementIdOrText);
       if (elem) {
@@ -703,6 +715,17 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         }
       } else {
         textToCopy = elementIdOrText;
+      }
+
+      // Prefer modern async Clipboard API; fall back to deprecated execCommand
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(textToCopy);
+          showToast(successMsg);
+          return;
+        }
+      } catch (err) {
+        // fall through to execCommand fallback below
       }
 
       const tempInput = document.createElement('textarea');
@@ -757,7 +780,10 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     }
 
     function generateFallbackKeys() {
-      // 32-byte cryptographically secure random bytes
+      // Degraded simulation mode: browser lacks WebCrypto Ed25519 support.
+      // These are random bytes, NOT valid keys — verify will always fail here.
+      // The UI must make this obvious to avoid misleading the user.
+      currentCryptoKeyPair = null;
       currentRawPrivateKeyBytes = new Uint8Array(32);
       currentRawPublicKeyBytes = new Uint8Array(32);
       window.crypto.getRandomValues(currentRawPrivateKeyBytes);
@@ -768,7 +794,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       document.getElementById('server-public-key-display').value = pubHex;
       document.getElementById('verify-pubkey').value = pubHex;
       updatePrivateKeyDisplay(privHex);
-      showToast("金鑰已透過安全亂數生成");
+      showToast("警告：此瀏覽器不支援 WebCrypto Ed25519，已改用無效的模擬金鑰，簽章將無法驗證", true);
     }
 
     function updatePrivateKeyDisplay(hex) {
@@ -816,6 +842,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       document.getElementById('payload-hash-display').innerText = hashHex;
 
       let signatureBytes;
+      let isDegraded = false;
 
       try {
         if (currentCryptoKeyPair && currentCryptoKeyPair.privateKey) {
@@ -827,17 +854,21 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
           );
           signatureBytes = new Uint8Array(sigBuffer);
         } else {
-          // Synthetic deterministic 64-byte signature simulator
+          // Degraded simulation mode: random 64-byte blob, NOT a real signature.
+          // Must be clearly flagged — it will NOT verify and must not be reported as SUCCESS.
+          isDegraded = true;
           signatureBytes = new Uint8Array(64);
           window.crypto.getRandomValues(signatureBytes);
         }
 
         // Validate 64 bytes invariant
         if (signatureBytes.length !== 64) {
-          console.warn("Signature length mismatch:", signatureBytes.length);
+          showToast(`簽章長度例外：預期 64 位元組，實際 ${signatureBytes.length} 位元組`, true);
+          return;
         }
 
         const sigHex = buf2hex(signatureBytes);
+        lastSignatureHex = sigHex;
         const sigBase64 = buf2base64(signatureBytes);
 
         // Display results
@@ -853,7 +884,8 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         // Formulate standard JSON API response
         const apiResponse = {
           code: 200,
-          status: "SUCCESS",
+          status: isDegraded ? "DEGRADED" : "SUCCESS",
+          warning: isDegraded ? "此環境 WebCrypto 不支援 Ed25519，簽章為未簽名的隨機值，將無法通過驗證" : undefined,
           algorithm: "Ed25519",
           signature_byte_length: 64,
           signature_hex: sigHex,
@@ -864,7 +896,11 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         };
 
         document.getElementById('api-response-json').innerText = JSON.stringify(apiResponse, null, 2);
-        showToast("64 Bytes 數位簽名生成完畢！");
+        if (isDegraded) {
+          showToast("警告：目前環境不支援 WebCrypto Ed25519，產出的是無效的模擬簽章", true);
+        } else {
+          showToast("64 Bytes 數位簽名生成完畢！");
+        }
       } catch (err) {
         console.error(err);
         showToast("簽章過程發生錯誤: " + err.message, true);
@@ -903,12 +939,46 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       reader.readAsArrayBuffer(file);
     }
 
+    function setupFileDropZone() {
+      const zone = document.getElementById('file-drop-zone');
+      if (!zone) return;
+      ['dragenter', 'dragover'].forEach(eventName =>
+        zone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          zone.classList.add('border-indigo-500', 'bg-indigo-500/10');
+        })
+      );
+      ['dragleave', 'drop'].forEach(eventName =>
+        zone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          zone.classList.remove('border-indigo-500', 'bg-indigo-500/10');
+        })
+      );
+      zone.addEventListener('drop', (e) => {
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async function(ev) {
+          const arrayBuffer = ev.target.result;
+          const hash = await calculateSHA256(arrayBuffer);
+          const hashHex = buf2hex(hash);
+
+          document.getElementById('file-upload-hint').innerText = `已載入: ${file.name} (${file.size} bytes)`;
+          document.getElementById('input-payload').value = `[FILE_HASH_SHA256]: ${hashHex} (Filename: ${file.name})`;
+          executeSign();
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
     function transferToVerifier() {
       const payload = document.getElementById('input-payload').value;
       const sigHex = document.getElementById('sig-hex-output').innerText;
       const pubKey = document.getElementById('server-public-key-display').value;
 
-      if (!sigHex || sigHex.includes('尚無簽章')) {
+      if (!sigHex || lastSignatureHex === null) {
         showToast("請先產出簽章後再帶入驗證", true);
         return;
       }
@@ -944,8 +1014,8 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
       try {
         let sigBytes;
-        // Auto-detect Hex (128 chars) or Base64 (88 chars)
-        if (sigInput.length === 128) {
+        // Strict format detection: hex = 128 chars of [0-9a-fA-F]; anything else tries Base64
+        if (/^[0-9a-fA-F]{128}$/.test(sigInput)) {
           sigBytes = hex2buf(sigInput);
         } else {
           sigBytes = base642buf(sigInput);
@@ -1016,6 +1086,28 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         activeNav.classList.remove('text-slate-400');
         activeNav.classList.add('bg-indigo-600', 'text-white');
       }
+
+      // Sync mobile menu active state and collapse it after selection
+      const mobileNav = document.getElementById('mobile-nav');
+      if (mobileNav) {
+        mobileNav.classList.add('hidden');
+        document.querySelectorAll('.mobile-tab-btn').forEach(btn => {
+          btn.classList.remove('bg-surface-800', 'text-white');
+        });
+        const labels = { workbench: 0, verifier: 1, arch: 2, api: 3 };
+        const idx = labels[tabId];
+        if (idx !== undefined && mobileNav.children[idx]) {
+          mobileNav.children[idx].classList.add('bg-surface-800', 'text-white');
+        }
+      }
+    }
+
+    function toggleMobileMenu(event) {
+      if (event) event.stopPropagation();
+      const mobileNav = document.getElementById('mobile-nav');
+      if (mobileNav) {
+        mobileNav.classList.toggle('hidden');
+      }
     }
 
     function switchCodeLang(lang) {
@@ -1046,6 +1138,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       lucide.createIcons();
       await regenerateFixedKeyPair();
       setSamplePayload(1);
+      setupFileDropZone();
     });
   </script>
 </body>
