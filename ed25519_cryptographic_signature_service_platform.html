@@ -170,7 +170,13 @@
                 <span id="lock-status-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
                 <span id="lock-status-text" class="text-emerald-400 text-xs font-mono">AES-256-GCM 已加密 (記憶體已解鎖)</span>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button id="btn-import-key" onclick="openImportModal()" class="px-2.5 py-1 bg-surface-800 hover:bg-surface-700 text-indigo-300 hover:text-white rounded-lg text-[11px] border border-surface-700 flex items-center gap-1 transition" title="匯入現有 Ed25519 私鑰（支援 Hex、PKCS#8 PEM 或加密 JSON 備份檔）">
+                  <i data-lucide="upload" class="w-3 h-3"></i> 匯入
+                </button>
+                <button id="btn-export-key" onclick="openExportModal()" class="px-2.5 py-1 bg-surface-800 hover:bg-surface-700 text-indigo-300 hover:text-white rounded-lg text-[11px] border border-surface-700 flex items-center gap-1 transition" title="匯出私鑰（支援 AES 加密備份檔、PKCS#8 PEM、Raw Hex）">
+                  <i data-lucide="download" class="w-3 h-3"></i> 匯出
+                </button>
                 <button id="btn-lock-key" onclick="lockPrivateKey()" class="px-2.5 py-1 bg-surface-800 hover:bg-surface-700 text-amber-300 hover:text-white rounded-lg text-[11px] border border-surface-700 flex items-center gap-1 transition" title="抹除記憶體中的私鑰，進入鎖定狀態">
                   <i data-lucide="lock" class="w-3 h-3"></i> 鎖定私鑰
                 </button>
@@ -197,7 +203,7 @@
             </button>
           </div>
           <p class="text-xs text-slate-500">
-            * 私鑰採用 <span class="font-mono text-indigo-400">AES-256-GCM (PBKDF2-SHA256, 100k 迭代)</span> 加密持久化於瀏覽器 OPFS 私有檔案 <span class="font-mono">signcore-ed25519-key.json</span>，本機絕不明文落地儲存。實務生產架構中，私鑰由 KMS / HSM 生成保管且不可匯出；此處完整演示密鑰在靜態存儲、記憶體解鎖與安全抹除的保護機制。
+            * 私鑰採用 <span class="font-mono text-indigo-400">AES-256-GCM (PBKDF2-SHA256, 100k 迭代)</span> 加密持久化於瀏覽器 OPFS 私有檔案 <span class="font-mono">signcore-ed25519-key.json</span>，本機絕不明文落地儲存。支援私鑰匯入（Hex / PKCS#8 PEM / 加密 JSON 備份檔）與多格式安全匯出；實務生產架構中，私鑰由 KMS / HSM 生成保管；此處完整演示密鑰在靜態存儲、記憶體解鎖、備份匯出與安全抹除的防護機制。
           </p>
         </div>
 
@@ -675,6 +681,211 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     <p>© 2026 SignCore 64. Ed25519 Cryptographic Microservice Architecture Design.</p>
   </footer>
 
+  <!-- ==================== Export Key Modal ==================== -->
+  <div id="modal-export" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm hidden">
+    <div class="bg-surface-850 border border-surface-700 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-surface-800 bg-surface-900/60">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+            <i data-lucide="download" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-white">匯出 Ed25519 內部私鑰</h3>
+            <p class="text-[11px] text-slate-400 font-mono">支援 AES-256-GCM 加密備份、標準 PKCS#8 PEM 與原始 Hex 種子</p>
+          </div>
+        </div>
+        <button onclick="closeExportModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Export Tab Selectors -->
+      <div class="flex border-b border-surface-800 bg-surface-900/40 px-6 pt-2 gap-2 text-xs">
+        <button id="export-tab-btn-backup" onclick="switchExportTab('backup')" class="export-tab-btn px-3 py-2 rounded-t-lg bg-indigo-600 text-white font-medium flex items-center gap-1.5 transition">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> 🔒 加密備份檔 (.json)
+        </button>
+        <button id="export-tab-btn-pem" onclick="switchExportTab('pem')" class="export-tab-btn px-3 py-2 rounded-t-lg text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 transition">
+          <i data-lucide="file-code" class="w-3.5 h-3.5"></i> 📜 PKCS#8 PEM
+        </button>
+        <button id="export-tab-btn-hex" onclick="switchExportTab('hex')" class="export-tab-btn px-3 py-2 rounded-t-lg text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 transition">
+          <i data-lucide="key" class="w-3.5 h-3.5"></i> 🔑 原始種子 Hex
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-6 overflow-y-auto space-y-4 flex-1">
+        <!-- Pane 1: Encrypted Backup -->
+        <div id="export-pane-backup" class="export-pane space-y-3">
+          <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-xs text-indigo-200 space-y-1">
+            <div class="flex items-center justify-between font-semibold">
+              <span class="flex items-center gap-1.5"><i data-lucide="shield" class="w-4 h-4 text-indigo-400"></i> 安全備份推薦</span>
+              <span id="export-pass-status" class="text-[11px] font-mono">檢查中...</span>
+            </div>
+            <p class="text-[11px] text-slate-400">
+              私鑰種子已透過 <span class="text-indigo-300 font-mono">PBKDF2-SHA256 (100k 迭代) + AES-256-GCM</span> 密文封裝，並將公鑰綁定為 AAD 防篡改認證資料。可安心匯出存檔並於其他 SignCore 節點還原。
+            </p>
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-400">備份檔 JSON 預覽</label>
+              <button onclick="copyToClipboard('export-backup-json', '備份 JSON 已複製至剪貼簿')" class="text-xs text-indigo-400 hover:underline flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> 複製 JSON
+              </button>
+            </div>
+            <textarea id="export-backup-json" readonly rows="7" class="w-full bg-surface-900 text-indigo-300 font-mono text-[11px] p-3 rounded-xl border border-surface-700 select-all"></textarea>
+          </div>
+          <div class="flex justify-end">
+            <button onclick="downloadBackupJsonFile()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition">
+              <i data-lucide="download" class="w-4 h-4"></i> 下載加密備份檔 (.json)
+            </button>
+          </div>
+        </div>
+
+        <!-- Pane 2: PKCS#8 PEM -->
+        <div id="export-pane-pem" class="export-pane space-y-3 hidden">
+          <div class="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-xs text-amber-200 space-y-1">
+            <div class="flex items-center gap-1.5 font-semibold text-amber-300">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i> ⚠ 明文私鑰警告 (Plaintext Private Key)
+            </div>
+            <p class="text-[11px] text-amber-300/80">
+              此格式包含未加密的 Ed25519 私鑰 DER Base64 編碼（標準 RFC 8410 PKCS#8 格式）。相容於 OpenSSL、Java、Go、Python 等後端服務。請妥善保管，勿上傳至公開代碼庫！
+            </p>
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-400">PKCS#8 PEM 私鑰文字</label>
+              <button onclick="copyToClipboard('export-pem-text', 'PKCS#8 PEM 已複製至剪貼簿')" class="text-xs text-indigo-400 hover:underline flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> 複製 PEM
+              </button>
+            </div>
+            <textarea id="export-pem-text" readonly rows="6" class="w-full bg-surface-900 text-amber-300 font-mono text-[11px] p-3 rounded-xl border border-surface-700 select-all"></textarea>
+          </div>
+          <div class="flex justify-end">
+            <button onclick="downloadPkcs8PemFile()" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="download" class="w-4 h-4"></i> 下載 PEM 檔 (ed25519-private.key)
+            </button>
+          </div>
+        </div>
+
+        <!-- Pane 3: Hex Seed -->
+        <div id="export-pane-hex" class="export-pane space-y-3 hidden">
+          <div class="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/20 text-xs text-rose-200 space-y-1">
+            <div class="flex items-center gap-1.5 font-semibold text-rose-300">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i> ⚠ 原始 Hex 私鑰種子 (Raw 32-Byte Seed)
+            </div>
+            <p class="text-[11px] text-rose-300/80">
+              直接提取的 64 位元十六進位純文字種子，適用於嵌入式硬體安全晶片、C 語言測試或底層調試。
+            </p>
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-400">Raw Hex (64 hex chars = 32 Bytes)</label>
+              <button onclick="copyToClipboard('export-hex-text', 'Hex 種子已複製至剪貼簿')" class="text-xs text-indigo-400 hover:underline flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> 複製 Hex
+              </button>
+            </div>
+            <input id="export-hex-text" readonly type="text" class="w-full bg-surface-900 text-rose-300 font-mono text-xs p-3 rounded-xl border border-surface-700 select-all" />
+          </div>
+          <div class="flex justify-end">
+            <button onclick="downloadRawHexFile()" class="px-4 py-2 bg-surface-700 hover:bg-surface-600 text-white rounded-xl text-xs font-medium flex items-center gap-1.5 border border-surface-600 transition">
+              <i data-lucide="download" class="w-4 h-4"></i> 下載文字檔 (seed.hex)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-surface-800 bg-surface-900/60 flex justify-end">
+        <button onclick="closeExportModal()" class="px-4 py-2 bg-surface-800 hover:bg-surface-700 text-slate-300 text-xs font-medium rounded-xl border border-surface-700 transition">
+          關閉
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Import Key Modal ==================== -->
+  <div id="modal-import" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm hidden">
+    <div class="bg-surface-850 border border-surface-700 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-surface-800 bg-surface-900/60">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+            <i data-lucide="upload" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-white">匯入 Ed25519 內部私鑰</h3>
+            <p class="text-[11px] text-slate-400 font-mono">支援 JSON 加密備份、PKCS#8 PEM 格式或 64 字元 Hex 種子</p>
+          </div>
+        </div>
+        <button onclick="closeImportModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-6 overflow-y-auto space-y-4 flex-1">
+        <!-- File Drop / Select Area -->
+        <div onclick="document.getElementById('import-file-input').click()" class="border-2 border-dashed border-surface-700 hover:border-indigo-500/60 rounded-xl p-4 text-center cursor-pointer bg-surface-900/40 hover:bg-surface-900/80 transition group">
+          <input type="file" id="import-file-input" accept=".json,.pem,.key,.txt" onchange="handleImportFileInput(event)" class="hidden" />
+          <i data-lucide="upload-cloud" class="w-8 h-8 mx-auto mb-1 text-slate-500 group-hover:text-indigo-400 transition"></i>
+          <p class="text-xs text-slate-300 font-medium">點擊選擇金鑰檔案，或拖曳檔案至此</p>
+          <p class="text-[10px] text-slate-500 font-mono mt-0.5">支援副檔名: .json (SignCore 備份檔), .pem / .key (PKCS#8), .txt (Hex 種子)</p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="flex-1 h-px bg-surface-800"></div>
+          <span class="text-[11px] text-slate-500 uppercase tracking-wider font-medium">或直接貼上金鑰內容</span>
+          <div class="flex-1 h-px bg-surface-800"></div>
+        </div>
+
+        <!-- Textarea input -->
+        <div class="space-y-1">
+          <div class="flex justify-between items-center text-xs">
+            <label class="font-medium text-slate-400">金鑰內容 (JSON / PEM / Hex)</label>
+            <span id="import-detected-format" class="font-mono text-[11px] text-slate-400">偵測格式: 尚未輸入</span>
+          </div>
+          <textarea id="import-text-input" rows="5" oninput="handleImportContentChange()" placeholder="貼上 JSON 備份檔內容、-----BEGIN PRIVATE KEY----- 區塊，或 64 字元 Hex 私鑰種子..." class="w-full bg-surface-900 text-slate-200 font-mono text-xs p-3 rounded-xl border border-surface-700 focus:outline-none focus:border-indigo-500 transition"></textarea>
+        </div>
+
+        <!-- Passphrase field -->
+        <div id="import-passphrase-container" class="p-3.5 bg-surface-900/60 rounded-xl border border-surface-800 space-y-2">
+          <label class="block text-xs font-medium text-slate-300">
+            金鑰保護密碼 <span class="text-slate-500 font-normal">(加密備份檔需提供解密密碼；匯入明文金鑰則作為新加密保護密碼)</span>
+          </label>
+          <div class="relative">
+            <input type="password" id="import-passphrase-input" oninput="const b=document.getElementById('import-error-banner');if(b)b.classList.add('hidden')" placeholder="輸入金鑰保護密碼 (預設使用目前系統密碼)" class="w-full bg-surface-850 text-slate-200 font-mono text-xs p-2.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500 pr-10" />
+            <button type="button" onclick="toggleImportPassVisibility()" class="absolute right-2 top-2 p-1 text-slate-400 hover:text-white rounded">
+              <i data-lucide="eye" id="import-pass-eye" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-500">
+            * 匯入成功後，私鑰將立即在瀏覽器本機重新以 AES-256-GCM 加密保護，並同步更新本機 OPFS / localStorage。
+          </p>
+        </div>
+
+        <!-- Error banner (hidden by default) -->
+        <div id="import-error-banner" class="hidden p-3 bg-rose-950/80 border border-rose-600/80 rounded-xl text-xs text-rose-300 flex items-start gap-2.5">
+          <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+          <span id="import-error-text" class="leading-relaxed">匯入發生錯誤</span>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-surface-800 bg-surface-900/60 flex items-center justify-between">
+        <span class="text-[11px] text-slate-500">匯入時將自動執行 Ed25519 簽章與驗證閉環校驗</span>
+        <div class="flex items-center gap-2">
+          <button onclick="closeImportModal()" class="px-4 py-2 bg-surface-800 hover:bg-surface-700 text-slate-300 text-xs font-medium rounded-xl border border-surface-700 transition">
+            取消
+          </button>
+          <button id="btn-execute-import" onclick="executeImportKey()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-xl flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 transition">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i> 驗證並匯入
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // State management
     let currentCryptoKeyPair = null;
@@ -731,6 +942,13 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         bytes[i] = binaryString.charCodeAt(i);
       }
       return bytes;
+    }
+
+    // Utility: Convert base64url to Hex string
+    function b64url2hex(str) {
+      let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      return buf2hex(base642buf(b64));
     }
 
     // --- Key Encryption (PBKDF2-SHA256 + AES-256-GCM) ---
@@ -1065,6 +1283,20 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         currentRawPrivateKeyBytes.fill(0); // Zeroize in-memory bytes
         currentRawPrivateKeyBytes = null;
       }
+      // Close open modals and purge sensitive text from DOM inputs
+      closeExportModal();
+      closeImportModal();
+      const exportPem = document.getElementById('export-pem-text');
+      if (exportPem) exportPem.value = '';
+      const exportHex = document.getElementById('export-hex-text');
+      if (exportHex) exportHex.value = '';
+      const exportBackup = document.getElementById('export-backup-json');
+      if (exportBackup) exportBackup.value = '';
+      const importInput = document.getElementById('import-text-input');
+      if (importInput) importInput.value = '';
+      const importPass = document.getElementById('import-passphrase-input');
+      if (importPass) importPass.value = '';
+
       // Locking invalidates previously produced signatures
       lastSignatureHex = null;
       const sigHexElem = document.getElementById('sig-hex-output');
@@ -1250,6 +1482,466 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       const b64 = buf2base64(spkiBytes);
       const pem = `-----BEGIN PUBLIC KEY-----\n${b64}\n-----END PUBLIC KEY-----`;
       copyToClipboard(pem, "已複製標準 SPKI PEM 格式公鑰");
+    }
+
+    // --- Private Key Export & Import Logic ---
+
+    function downloadTextAsFile(filename, text, mimeType = 'text/plain') {
+      const blob = new Blob([text], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function getPrivateKeyAsPkcs8Pem(seedBytes) {
+      // RFC 8410: Ed25519 PKCS#8 prefix (16 bytes)
+      // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 + 32-byte seed
+      const pkcs8Prefix = hex2buf('302e020100300506032b657004220420');
+      const pkcs8Bytes = new Uint8Array(pkcs8Prefix.length + seedBytes.length);
+      pkcs8Bytes.set(pkcs8Prefix, 0);
+      pkcs8Bytes.set(seedBytes, pkcs8Prefix.length);
+      const b64 = buf2base64(pkcs8Bytes);
+      const lines = b64.match(/.{1,64}/g)?.join('\n') || b64;
+      return `-----BEGIN PRIVATE KEY-----\n${lines}\n-----END PRIVATE KEY-----`;
+    }
+
+    function openExportModal() {
+      if (isKeyLocked || !currentRawPrivateKeyBytes) {
+        showToast('私鑰目前處於鎖定狀態，請先輸入密碼解鎖私鑰後再進行匯出', true);
+        const passInput = document.getElementById('key-passphrase-input');
+        if (passInput) passInput.focus();
+        return;
+      }
+      if (!currentCryptoKeyPair) {
+        // Degraded simulation mode: raw bytes are random junk, exporting them is meaningless
+        showToast('模擬模式下金鑰為無效亂數，匯出已取消', true);
+        return;
+      }
+      updateExportModalContent();
+      switchExportTab('backup');
+      document.getElementById('modal-export').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeExportModal() {
+      document.getElementById('modal-export').classList.add('hidden');
+      const pemElem = document.getElementById('export-pem-text');
+      if (pemElem) pemElem.value = '';
+      const hexElem = document.getElementById('export-hex-text');
+      if (hexElem) hexElem.value = '';
+      const backupElem = document.getElementById('export-backup-json');
+      if (backupElem) backupElem.value = '';
+    }
+
+    function switchExportTab(tabName) {
+      ['backup', 'pem', 'hex'].forEach(t => {
+        const pane = document.getElementById('export-pane-' + t);
+        const btn = document.getElementById('export-tab-btn-' + t);
+        if (pane) pane.classList.toggle('hidden', t !== tabName);
+        if (btn) {
+          if (t === tabName) {
+            btn.className = 'export-tab-btn px-3 py-2 rounded-t-lg bg-indigo-600 text-white font-medium flex items-center gap-1.5 transition';
+          } else {
+            btn.className = 'export-tab-btn px-3 py-2 rounded-t-lg text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1.5 transition';
+          }
+        }
+      });
+      lucide.createIcons();
+    }
+
+    function updateExportModalContent() {
+      if (!currentRawPrivateKeyBytes || !currentRawPublicKeyBytes) return;
+      const privHex = buf2hex(currentRawPrivateKeyBytes);
+      const pubHex = buf2hex(currentRawPublicKeyBytes);
+
+      // 1. JSON Backup envelope
+      let backupJson = '';
+      if (currentEncryptedData) {
+        backupJson = JSON.stringify({
+          version: 2,
+          algorithm: 'Ed25519',
+          created_at: new Date().toISOString(),
+          public_key_hex: pubHex,
+          encryption: currentEncryptedData
+        }, null, 2);
+      }
+      const backupElem = document.getElementById('export-backup-json');
+      if (backupElem) backupElem.value = backupJson;
+
+      const passStatusElem = document.getElementById('export-pass-status');
+      if (passStatusElem) {
+        if (currentPassphrase === DEFAULT_PASSPHRASE) {
+          passStatusElem.innerHTML = '<span class="text-amber-300">⚠ 目前使用系統預設密碼加密</span>';
+        } else {
+          passStatusElem.innerHTML = '<span class="text-emerald-400">✓ 已使用自訂密碼加密</span>';
+        }
+      }
+
+      // 2. PKCS#8 PEM
+      const pem = getPrivateKeyAsPkcs8Pem(currentRawPrivateKeyBytes);
+      const pemElem = document.getElementById('export-pem-text');
+      if (pemElem) pemElem.value = pem;
+
+      // 3. Hex Seed
+      const hexElem = document.getElementById('export-hex-text');
+      if (hexElem) hexElem.value = privHex;
+    }
+
+    function downloadBackupJsonFile() {
+      const content = document.getElementById('export-backup-json').value;
+      if (!content) {
+        showToast('目前沒有可匯出的加密信封（金鑰尚未寫入金鑰檔）', true);
+        return;
+      }
+      downloadTextAsFile('signcore-ed25519-backup.json', content, 'application/json');
+      showToast('✓ 已開始下載 AES-256-GCM 加密備份檔');
+    }
+
+    function downloadPkcs8PemFile() {
+      const content = document.getElementById('export-pem-text').value;
+      if (!content) return;
+      downloadTextAsFile('ed25519-private.key', content, 'application/x-pem-file');
+      showToast('✓ 已開始下載 PKCS#8 PEM 私鑰檔');
+    }
+
+    function downloadRawHexFile() {
+      const content = document.getElementById('export-hex-text').value;
+      if (!content) return;
+      downloadTextAsFile('ed25519-seed.hex', content, 'text/plain');
+      showToast('✓ 已開始下載 Raw Hex 私鑰文字檔');
+    }
+
+    function openImportModal() {
+      if (!window.crypto || !window.crypto.subtle) {
+        showToast('此環境不支援 WebCrypto，無法進行私鑰匯入', true);
+        return;
+      }
+      document.getElementById('import-text-input').value = '';
+      document.getElementById('import-passphrase-input').value = '';
+      const fileInput = document.getElementById('import-file-input');
+      if (fileInput) fileInput.value = '';
+      const formatBadge = document.getElementById('import-detected-format');
+      if (formatBadge) {
+        formatBadge.innerText = '偵測格式: 尚未輸入';
+        formatBadge.className = 'font-mono text-[11px] text-slate-400';
+      }
+      const errBanner = document.getElementById('import-error-banner');
+      if (errBanner) errBanner.classList.add('hidden');
+      document.getElementById('modal-import').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeImportModal() {
+      document.getElementById('modal-import').classList.add('hidden');
+      const importInput = document.getElementById('import-text-input');
+      if (importInput) importInput.value = '';
+      const importPass = document.getElementById('import-passphrase-input');
+      if (importPass) importPass.value = '';
+      const fileInput = document.getElementById('import-file-input');
+      if (fileInput) fileInput.value = '';
+      const errBanner = document.getElementById('import-error-banner');
+      if (errBanner) errBanner.classList.add('hidden');
+    }
+
+    function toggleImportPassVisibility() {
+      const input = document.getElementById('import-passphrase-input');
+      const icon = document.getElementById('import-pass-eye');
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.setAttribute('data-lucide', 'eye-off');
+      } else {
+        input.type = 'password';
+        if (icon) icon.setAttribute('data-lucide', 'eye');
+      }
+      lucide.createIcons();
+    }
+
+    function handleImportFileInput(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('import-text-input').value = e.target.result;
+        handleImportContentChange();
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    function handleImportContentChange() {
+      const text = (document.getElementById('import-text-input').value || '').trim();
+      const formatBadge = document.getElementById('import-detected-format');
+      const passInput = document.getElementById('import-passphrase-input');
+      const errBanner = document.getElementById('import-error-banner');
+      if (errBanner) errBanner.classList.add('hidden');
+
+      if (!text) {
+        if (formatBadge) {
+          formatBadge.innerText = '偵測格式: 尚未輸入';
+          formatBadge.className = 'font-mono text-[11px] text-slate-400';
+        }
+        return;
+      }
+
+      if (text.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.encryption && parsed.encryption.ciphertext_hex) {
+            formatBadge.innerText = '偵測格式: SignCore v2 加密備份檔 (AES-256-GCM)';
+            formatBadge.className = 'font-mono text-[11px] text-emerald-400';
+            if (passInput) passInput.placeholder = '請輸入此備份檔的解密密碼';
+          } else if (parsed.private_seed_hex) {
+            formatBadge.innerText = '偵測格式: 舊版明文 JSON (v1)';
+            formatBadge.className = 'font-mono text-[11px] text-indigo-400';
+            if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空使用系統預設密碼)';
+          } else {
+            formatBadge.innerText = '偵測格式: 未知 JSON 物件';
+            formatBadge.className = 'font-mono text-[11px] text-amber-400';
+          }
+        } catch (e) {
+          formatBadge.innerText = '偵測格式: JSON 語法無效';
+          formatBadge.className = 'font-mono text-[11px] text-rose-400';
+        }
+      } else if (text.includes('-----BEGIN')) {
+        formatBadge.innerText = '偵測格式: OpenSSL / RFC 8410 PKCS#8 PEM';
+        formatBadge.className = 'font-mono text-[11px] text-indigo-400';
+        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空沿用系統密碼)';
+      } else if (/^[0-9a-fA-F]{64}$/.test(text.replace(/\s+/g, ''))) {
+        formatBadge.innerText = '偵測格式: 原始種子 Hex (32 Bytes / 64 hex)';
+        formatBadge.className = 'font-mono text-[11px] text-indigo-400';
+        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空沿用系統密碼)';
+      } else {
+        formatBadge.innerText = '偵測格式: 未識別或不完整格式';
+        formatBadge.className = 'font-mono text-[11px] text-amber-400';
+      }
+    }
+
+    async function executeImportKey() {
+      const text = (document.getElementById('import-text-input').value || '').trim();
+      const passInput = document.getElementById('import-passphrase-input');
+      const errBanner = document.getElementById('import-error-banner');
+      const errText = document.getElementById('import-error-text');
+
+      if (errBanner) errBanner.classList.add('hidden');
+
+      function showError(msg) {
+        if (errBanner && errText) {
+          errText.innerText = msg;
+          errBanner.classList.remove('hidden');
+        }
+        showToast(msg, true);
+      }
+
+      if (!text) {
+        showError('請貼上金鑰內容或上傳檔案');
+        return;
+      }
+
+      try {
+        let seedHex = null;
+        let pubHex = null;
+        let newPass = passInput.value.trim();
+        let cameFromEncrypted = false;
+
+        if (text.startsWith('{')) {
+          let parsed;
+          try {
+            parsed = JSON.parse(text);
+          } catch (e) {
+            showError('JSON 解析失敗，請確認檔案格式是否正確');
+            return;
+          }
+
+          if (parsed.encryption && parsed.encryption.ciphertext_hex) {
+            const passToTry = newPass || currentPassphrase;
+            if (!passToTry) {
+              showError('此為加密備份檔，請輸入保護密碼以進行解密');
+              return;
+            }
+            pubHex = parsed.public_key_hex;
+            if (!/^[0-9a-fA-F]{64}$/.test(pubHex || '')) {
+              showError('備份檔中公鑰格式不正確 (應為 64 字元 Hex)');
+              return;
+            }
+            const aad = new TextEncoder().encode('signcore64-v2|Ed25519|' + pubHex);
+            let dec;
+            try {
+              dec = await decryptPrivateSeed(parsed.encryption, passToTry, aad);
+            } catch (e) {
+              showError('解密失敗：保護密碼不正確，或金鑰備份檔案已被篡改');
+              return;
+            }
+            seedHex = buf2hex(dec.seedBytes);
+            cameFromEncrypted = true;
+            newPass = passToTry; // Preserve successful passphrase
+          } else if (parsed.private_seed_hex) {
+            seedHex = parsed.private_seed_hex.trim().toLowerCase();
+            pubHex = parsed.public_key_hex ? parsed.public_key_hex.trim().toLowerCase() : null;
+          } else {
+            showError('備份 JSON 缺少 encryption 或 private_seed_hex 欄位');
+            return;
+          }
+        } else if (text.includes('-----BEGIN')) {
+          const b64 = text.replace(/-----BEGIN [A-Z0-9_ -]+-----/g, '')
+                          .replace(/-----END [A-Z0-9_ -]+-----/g, '')
+                          .replace(/\s+/g, '');
+          const rawBytes = base642buf(b64);
+          let derBytes;
+          if (rawBytes.length === 32) {
+            derBytes = new Uint8Array(16 + 32);
+            derBytes.set(hex2buf('302e020100300506032b657004220420'), 0);
+            derBytes.set(rawBytes, 16);
+          } else {
+            derBytes = rawBytes;
+          }
+          try {
+            const privKey = await window.crypto.subtle.importKey('pkcs8', derBytes, { name: 'Ed25519' }, true, ['sign']);
+            const jwk = await window.crypto.subtle.exportKey('jwk', privKey);
+            seedHex = b64url2hex(jwk.d);
+            pubHex = b64url2hex(jwk.x);
+          } catch (e) {
+            showError('PKCS#8 PEM 解析失敗：' + (e.message || '無效的 Ed25519 私鑰格式'));
+            return;
+          }
+        } else {
+          const cleanHex = text.replace(/\s+/g, '');
+          if (/^[0-9a-fA-F]{64}$/.test(cleanHex)) {
+            seedHex = cleanHex.toLowerCase();
+            const pkcs8Der = new Uint8Array(16 + 32);
+            pkcs8Der.set(hex2buf('302e020100300506032b657004220420'), 0);
+            pkcs8Der.set(hex2buf(seedHex), 16);
+            try {
+              const privKey = await window.crypto.subtle.importKey('pkcs8', pkcs8Der, { name: 'Ed25519' }, true, ['sign']);
+              const jwk = await window.crypto.subtle.exportKey('jwk', privKey);
+              pubHex = b64url2hex(jwk.x);
+            } catch (e) {
+              showError('WebCrypto 衍生公鑰失敗：' + (e.message || '瀏覽器未支援 Ed25519'));
+              return;
+            }
+          } else {
+            showError('無法識別的金鑰內容。請輸入 64 字元 Hex 種子、PKCS#8 PEM 或 JSON 備份檔');
+            return;
+          }
+        }
+
+        if (!seedHex || !/^[0-9a-fA-F]{64}$/.test(seedHex)) {
+          showError('提取之私鑰種子長度不正確 (應為 64 字元 Hex)');
+          return;
+        }
+
+        // If public key was not derived yet, derive it:
+        if (!pubHex) {
+          const pkcs8Der = new Uint8Array(16 + 32);
+          pkcs8Der.set(hex2buf('302e020100300506032b657004220420'), 0);
+          pkcs8Der.set(hex2buf(seedHex), 16);
+          const privKey = await window.crypto.subtle.importKey('pkcs8', pkcs8Der, { name: 'Ed25519' }, true, ['sign']);
+          const jwk = await window.crypto.subtle.exportKey('jwk', privKey);
+          pubHex = b64url2hex(jwk.x);
+        }
+
+        // Public/Private pairing check with sign + verify
+        let validatedPrivateKey;
+        try {
+          validatedPrivateKey = await validateKeyPairIntegrity(seedHex, pubHex);
+        } catch (e) {
+          showError('金鑰驗證失敗：公鑰與私鑰不匹配或金鑰損毀 (' + e.message + ')');
+          return;
+        }
+
+        // Set passphrase if provided
+        if (newPass) {
+          if (newPass.length < 6) {
+            showError('金鑰保護密碼長度建議至少 6 個字元');
+            return;
+          }
+          currentPassphrase = newPass;
+        } else if (!cameFromEncrypted) {
+          // Fresh import (PEM / hex / v1 JSON) with no passphrase input: start from the
+          // demo default passphrase rather than silently inheriting the old key's passphrase
+          currentPassphrase = DEFAULT_PASSPHRASE;
+        }
+
+        // Apply new keys
+        currentCryptoKeyPair = { privateKey: validatedPrivateKey, publicKey: null };
+        await setKeyDisplaysFromRaw(seedHex, pubHex);
+        setKeyLockState(false);
+
+        // Reset previous signature state
+        lastSignatureHex = null;
+        const sigHexElem = document.getElementById('sig-hex-output');
+        if (sigHexElem) {
+          sigHexElem.innerText = '已成功匯入新金鑰：請重新點擊「執行 Ed25519 數位簽章」';
+          sigHexElem.classList.remove('text-amber-300');
+          sigHexElem.classList.add('text-slate-400');
+        }
+        const b64 = document.getElementById('sig-base64-output');
+        if (b64) b64.value = '';
+        const rPart = document.getElementById('sig-r-part');
+        if (rPart) rPart.innerText = '待重新簽署';
+        const sPart = document.getElementById('sig-s-part');
+        if (sPart) sPart.innerText = '待重新簽署';
+
+        const savedWhere = await persistKeysToFile(seedHex, pubHex, currentPassphrase);
+        updateKeySourceBadge('外部金鑰已匯入 (AES-256-GCM)');
+        updateKeyFileInfo('金鑰已匯入並加密儲存: ' + savedWhere.join(' + '));
+        showToast('✓ 私鑰已成功匯入並以 AES-256-GCM 加密保護！');
+        closeImportModal();
+
+      } catch (err) {
+        showError('匯入過程發生未預期錯誤：' + err.message);
+      }
+    }
+
+    function setupImportDropZone() {
+      const dropZone = document.querySelector('#modal-import .border-dashed');
+      if (!dropZone) return;
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.add('border-indigo-500', 'bg-indigo-950/20');
+        });
+      });
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.remove('border-indigo-500', 'bg-indigo-950/20');
+        });
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dt = e.dataTransfer;
+        const files = dt && dt.files;
+        if (files && files.length > 0) {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            document.getElementById('import-text-input').value = evt.target.result;
+            handleImportContentChange();
+          };
+          reader.readAsText(files[0]);
+        }
+      });
+    }
+
+    function setupModalBackdropDismiss() {
+      ['modal-export', 'modal-import'].forEach(id => {
+        const modal = document.getElementById(id);
+        if (!modal) return;
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            if (id === 'modal-export') closeExportModal();
+            else closeImportModal();
+          }
+        });
+      });
     }
 
     async function clearStoredKeys() {
@@ -1632,6 +2324,15 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       }
       setSamplePayload(1);
       setupFileDropZone();
+      setupImportDropZone();
+      setupModalBackdropDismiss();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeExportModal();
+        closeImportModal();
+      }
     });
   </script>
 </body>
