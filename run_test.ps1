@@ -41,9 +41,15 @@ if (-not $ready) {
 Write-Host "Mock server ready at http://127.0.0.1:$Port"
 
 Write-Host "Step 3: Running C test client..."
+$clientExit = 1
 try {
     .\sign_client_test.exe 127.0.0.1 $Port
-    $clientExit = $LASTEXITCODE
+    if ($LASTEXITCODE -ne $null) {
+        $clientExit = $LASTEXITCODE
+    }
+} catch {
+    Write-Host "Execution of sign_client_test.exe failed: $_" -ForegroundColor Red
+    $clientExit = 1
 } finally {
     if ($serverProcess) {
         Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue

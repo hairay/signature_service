@@ -295,6 +295,8 @@ int main(int argc, char *argv[]) {
         } else {
             printf("  ✗ [FAIL] 簽章正向驗證未通過，回應報文：\n%s\n\n", resp_buf);
         }
+    } else {
+        printf("  ✗ [FAIL] 測試 3 請求連線失敗 (POST /api/v1/crypto/verify)\n\n");
     }
 
     // -----------------------------------------------------------
@@ -318,6 +320,8 @@ int main(int argc, char *argv[]) {
         } else {
             printf("  ✗ [FAIL] 竄改攔截失效\n\n");
         }
+    } else {
+        printf("  ✗ [FAIL] 測試 4 請求連線失敗 (POST /api/v1/crypto/verify)\n\n");
     }
 
     cleanup_networking();

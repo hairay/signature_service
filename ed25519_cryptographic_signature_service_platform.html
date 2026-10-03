@@ -851,10 +851,10 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         <!-- Passphrase field -->
         <div id="import-passphrase-container" class="p-3.5 bg-surface-900/60 rounded-xl border border-surface-800 space-y-2">
           <label class="block text-xs font-medium text-slate-300">
-            金鑰保護密碼 <span class="text-slate-500 font-normal">(加密備份檔需提供解密密碼；匯入明文金鑰則作為新加密保護密碼)</span>
+            金鑰保護密碼 <span class="text-slate-500 font-normal">(加密備份檔需提供解密密碼；匯入明文金鑰則作為新加密保護密碼，留空使用展示預設密碼)</span>
           </label>
           <div class="relative">
-            <input type="password" id="import-passphrase-input" oninput="const b=document.getElementById('import-error-banner');if(b)b.classList.add('hidden')" placeholder="輸入金鑰保護密碼 (預設使用目前系統密碼)" class="w-full bg-surface-850 text-slate-200 font-mono text-xs p-2.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500 pr-10" />
+            <input type="password" id="import-passphrase-input" oninput="const b=document.getElementById('import-error-banner');if(b)b.classList.add('hidden')" placeholder="輸入金鑰保護密碼 (留空使用展示預設密碼)" class="w-full bg-surface-850 text-slate-200 font-mono text-xs p-2.5 rounded-lg border border-surface-700 focus:outline-none focus:border-indigo-500 pr-10" />
             <button type="button" onclick="toggleImportPassVisibility()" class="absolute right-2 top-2 p-1 text-slate-400 hover:text-white rounded">
               <i data-lucide="eye" id="import-pass-eye" class="w-4 h-4"></i>
             </button>
@@ -1300,12 +1300,17 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       // Locking invalidates previously produced signatures
       lastSignatureHex = null;
       const sigHexElem = document.getElementById('sig-hex-output');
-      sigHexElem.innerText = '私鑰已鎖定：解鎖後請重新簽章';
-      sigHexElem.classList.remove('text-amber-300');
-      sigHexElem.classList.add('text-slate-400');
-      document.getElementById('sig-base64-output').value = '';
-      document.getElementById('sig-r-part').innerText = '待重新簽章';
-      document.getElementById('sig-s-part').innerText = '待重新簽章';
+      if (sigHexElem) {
+        sigHexElem.innerText = '私鑰已鎖定：解鎖後請重新簽章';
+        sigHexElem.classList.remove('text-amber-300');
+        sigHexElem.classList.add('text-slate-400');
+      }
+      const b64 = document.getElementById('sig-base64-output');
+      if (b64) b64.value = '';
+      const rPart = document.getElementById('sig-r-part');
+      if (rPart) rPart.innerText = '待重新簽章';
+      const sPart = document.getElementById('sig-s-part');
+      if (sPart) sPart.innerText = '待重新簽章';
       setKeyLockState(true);
       updatePrivateKeyDisplay('');
       showToast('私鑰已鎖定，記憶體快取已安全抹除');
@@ -1699,7 +1704,7 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
           } else if (parsed.private_seed_hex) {
             formatBadge.innerText = '偵測格式: 舊版明文 JSON (v1)';
             formatBadge.className = 'font-mono text-[11px] text-indigo-400';
-            if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空使用系統預設密碼)';
+            if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空使用展示預設密碼)';
           } else {
             formatBadge.innerText = '偵測格式: 未知 JSON 物件';
             formatBadge.className = 'font-mono text-[11px] text-amber-400';
@@ -1711,11 +1716,11 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
       } else if (text.includes('-----BEGIN')) {
         formatBadge.innerText = '偵測格式: OpenSSL / RFC 8410 PKCS#8 PEM';
         formatBadge.className = 'font-mono text-[11px] text-indigo-400';
-        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空沿用系統密碼)';
+        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空使用展示預設密碼)';
       } else if (/^[0-9a-fA-F]{64}$/.test(text.replace(/\s+/g, ''))) {
         formatBadge.innerText = '偵測格式: 原始種子 Hex (32 Bytes / 64 hex)';
         formatBadge.className = 'font-mono text-[11px] text-indigo-400';
-        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空沿用系統密碼)';
+        if (passInput) passInput.placeholder = '設定新金鑰保護密碼 (留空使用展示預設密碼)';
       } else {
         formatBadge.innerText = '偵測格式: 未識別或不完整格式';
         formatBadge.className = 'font-mono text-[11px] text-amber-400';
@@ -1888,9 +1893,15 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
         if (sPart) sPart.innerText = '待重新簽署';
 
         const savedWhere = await persistKeysToFile(seedHex, pubHex, currentPassphrase);
-        updateKeySourceBadge('外部金鑰已匯入 (AES-256-GCM)');
-        updateKeyFileInfo('金鑰已匯入並加密儲存: ' + savedWhere.join(' + '));
-        showToast('✓ 私鑰已成功匯入並以 AES-256-GCM 加密保護！');
+        if (savedWhere.length > 0) {
+          updateKeySourceBadge('外部金鑰已匯入 (AES-256-GCM)');
+          updateKeyFileInfo('金鑰已匯入並加密儲存: ' + savedWhere.join(' + '));
+          showToast('✓ 私鑰已成功匯入並以 AES-256-GCM 加密保護！');
+        } else {
+          updateKeySourceBadge('外部金鑰已匯入（無法寫入金鑰檔）', true);
+          updateKeyFileInfo('金鑰已匯入但寫入失敗：此環境無可用儲存，僅存在於記憶體', true);
+          showToast('金鑰已匯入，但此環境無法寫入金鑰檔（重新整理即失效）', true);
+        }
         closeImportModal();
 
       } catch (err) {
@@ -1967,27 +1978,38 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
     }
 
     async function handlePayloadInput() {
-      const payloadText = document.getElementById('input-payload').value;
+      const payloadElem = document.getElementById('input-payload');
+      const payloadText = payloadElem ? payloadElem.value : '';
       const encoder = new TextEncoder();
       const payloadBytes = encoder.encode(payloadText);
-      document.getElementById('payload-bytes-count').innerText = `${payloadBytes.length} bytes`;
+      const countElem = document.getElementById('payload-bytes-count');
+      if (countElem) countElem.innerText = `${payloadBytes.length} bytes`;
       const hash = await calculateSHA256(payloadBytes);
-      document.getElementById('payload-hash-display').innerText = buf2hex(hash);
+      const hashElem = document.getElementById('payload-hash-display');
+      if (hashElem) hashElem.innerText = buf2hex(hash);
 
       // 若在產出簽章後修改內容，將簽章狀態重置為未同步，防止帶入過期簽章
       if (lastSignatureHex !== null) {
         lastSignatureHex = null;
         const sigHexElem = document.getElementById('sig-hex-output');
-        sigHexElem.innerText = "資料已變更，請重新點擊「執行 Ed25519 簽名」以產出對應簽章。";
-        sigHexElem.classList.add('text-slate-400');
-        sigHexElem.classList.remove('text-amber-300');
-        document.getElementById('sig-base64-output').value = '';
-        document.getElementById('sig-r-part').innerText = '待重新簽署';
-        document.getElementById('sig-s-part').innerText = '待重新簽署';
-        document.getElementById('api-response-json').innerText = JSON.stringify({
-          status: "PENDING_RESIGN",
-          message: "資料已修改，請重新執行簽章"
-        }, null, 2);
+        if (sigHexElem) {
+          sigHexElem.innerText = "資料已變更，請重新點擊「執行 Ed25519 簽名」以產出對應簽章。";
+          sigHexElem.classList.add('text-slate-400');
+          sigHexElem.classList.remove('text-amber-300');
+        }
+        const b64 = document.getElementById('sig-base64-output');
+        if (b64) b64.value = '';
+        const rPart = document.getElementById('sig-r-part');
+        if (rPart) rPart.innerText = '待重新簽署';
+        const sPart = document.getElementById('sig-s-part');
+        if (sPart) sPart.innerText = '待重新簽署';
+        const apiResp = document.getElementById('api-response-json');
+        if (apiResp) {
+          apiResp.innerText = JSON.stringify({
+            status: "PENDING_RESIGN",
+            message: "資料已修改，請重新執行簽章"
+          }, null, 2);
+        }
       }
     }
 
@@ -2330,8 +2352,14 @@ func VerifyPayload(data []byte, signatureHex string, publicKeyHex string) bool {
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeExportModal();
-        closeImportModal();
+        const expModal = document.getElementById('modal-export');
+        if (expModal && !expModal.classList.contains('hidden')) {
+          closeExportModal();
+        }
+        const impModal = document.getElementById('modal-import');
+        if (impModal && !impModal.classList.contains('hidden')) {
+          closeImportModal();
+        }
       }
     });
   </script>

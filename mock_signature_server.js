@@ -9,6 +9,7 @@ const crypto = require('crypto');
 
 const PORT = Number(process.argv[2]) || 8080;
 const HOST = '127.0.0.1';
+const MAX_BODY_BYTES = 1024 * 1024; // 1MB 請求體上限
 
 // 1. 初始化服務端內部 Ed25519 固定金鑰對 (模擬 HSM / KMS 保管)
 console.log('正在初始化 Ed25519 內部固定金鑰對...');
@@ -54,8 +55,19 @@ const server = http.createServer((req, res) => {
     // 端點 2: POST /api/v1/crypto/sign
     if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/sign') {
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let tooLarge = false;
+        req.on('data', chunk => {
+            if (tooLarge) return;
+            body += chunk;
+            if (body.length > MAX_BODY_BYTES) {
+                tooLarge = true;
+                res.writeHead(413);
+                res.end(JSON.stringify({ code: 413, error: '請求 Payload 超過大小上限 (1MB)' }));
+                req.destroy();
+            }
+        });
         req.on('end', () => {
+            if (tooLarge) return;
             try {
                 const reqJson = JSON.parse(body);
                 const payload = reqJson.payload;
@@ -105,8 +117,19 @@ const server = http.createServer((req, res) => {
     // 端點 3: POST /api/v1/crypto/verify (供測試程式校驗)
     if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/crypto/verify') {
         let body = '';
-        req.on('data', chunk => { body += chunk; });
+        let tooLarge = false;
+        req.on('data', chunk => {
+            if (tooLarge) return;
+            body += chunk;
+            if (body.length > MAX_BODY_BYTES) {
+                tooLarge = true;
+                res.writeHead(413);
+                res.end(JSON.stringify({ code: 413, error: '請求 Payload 超過大小上限 (1MB)' }));
+                req.destroy();
+            }
+        });
         req.on('end', () => {
+            if (tooLarge) return;
             try {
                 const reqJson = JSON.parse(body);
                 const payload = reqJson.payload;
